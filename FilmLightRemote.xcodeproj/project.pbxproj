@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 63;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -24,14 +24,14 @@
 		7516003A19D055B376461731 /* ScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerView.swift; sourceTree = "<group>"; };
 		9AAE3FBEA794C6D7DA1D597D /* LightControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightControlView.swift; sourceTree = "<group>"; };
 		C12300A661DDD19AB7992487 /* LightState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightState.swift; sourceTree = "<group>"; };
-		DCBC503C53982BEB3199AF30 /* FilmLightRemote.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = FilmLightRemote.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DCBC503C53982BEB3199AF30 /* Film Light Remote.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Film Light Remote.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
 		080E860E5F644D0207A2725F /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				DCBC503C53982BEB3199AF30 /* FilmLightRemote.app */,
+				DCBC503C53982BEB3199AF30 /* Film Light Remote.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -116,7 +116,7 @@
 			packageProductDependencies = (
 			);
 			productName = FilmLightRemote;
-			productReference = DCBC503C53982BEB3199AF30 /* FilmLightRemote.app */;
+			productReference = DCBC503C53982BEB3199AF30 /* Film Light Remote.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -129,7 +129,6 @@
 				LastUpgradeCheck = 1500;
 				TargetAttributes = {
 					264DAB5395C727009F70C4F1 = {
-						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -144,7 +143,6 @@
 			);
 			mainGroup = F9F17139782469E453CC4753;
 			minimizedProjectReferenceProxies = 1;
-			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -300,7 +298,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 68V2Q6SJH5;
 				INFOPLIST_FILE = FilmLightRemote/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -322,7 +320,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 68V2Q6SJH5;
 				INFOPLIST_FILE = FilmLightRemote/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
