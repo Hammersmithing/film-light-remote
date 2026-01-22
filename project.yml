@@ -1,0 +1,36 @@
+name: FilmLightRemote
+options:
+  bundleIdPrefix: com.aldenhammersmith
+  deploymentTarget:
+    iOS: "16.0"
+  xcodeVersion: "15.0"
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+
+targets:
+  FilmLightRemote:
+    type: application
+    platform: iOS
+    sources:
+      - path: FilmLightRemote/Sources
+        type: group
+    resources:
+      - path: FilmLightRemote/Resources
+        type: group
+    info:
+      path: FilmLightRemote/Resources/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.aldenhammersmith.FilmLightRemote
+        INFOPLIST_FILE: FilmLightRemote/Resources/Info.plist
+        PRODUCT_NAME: "Film Light Remote"
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: 1
+        DEVELOPMENT_TEAM: ""
+        CODE_SIGN_STYLE: Automatic
+    entitlements:
+      path: FilmLightRemote/Resources/FilmLightRemote.entitlements
