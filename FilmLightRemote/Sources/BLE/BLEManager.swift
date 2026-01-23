@@ -56,6 +56,7 @@ class BLEManager: NSObject, ObservableObject {
     private var statusCharacteristic: CBCharacteristic?
     private var meshProxyIn: CBCharacteristic?  // 2ADD
     private var char7FCB: CBCharacteristic?     // Alternative control
+    private var sidusControl: CBCharacteristic? // 2B12 - Direct Sidus control
 
     // Scanning
     private var scanTimer: Timer?
@@ -177,31 +178,37 @@ class BLEManager: NSObject, ObservableObject {
         currentIntensity = percent
         guard let peripheral = connectedPeripheral else { return }
 
-        log("setIntensity(\(percent)%) - using mesh encryption...")
+        log("setIntensity(\(percent)%)")
 
-        // Create Sidus CCT protocol command
+        // Create Sidus CCT protocol command (10-byte format)
         let cctCmd = CCTProtocol(intensityPercent: Double(percent), cctKelvin: currentCCT)
         let payload = cctCmd.getSendData()
 
         log("  Sidus payload: \(payload.hexString)")
 
-        // Create encrypted mesh proxy PDU
-        if let meshPDU = MeshCrypto.createMeshProxyPDU(accessPayload: payload) {
-            log("  Mesh PDU: \(meshPDU.hexString)")
+        // Method 1: Try direct Sidus control characteristic (2B12) with opcode prefix
+        if let char = sidusControl {
+            // Try with Sidus opcode 0x26 prepended
+            var prefixedPayload = Data([0x26])
+            prefixedPayload.append(payload)
+            peripheral.writeValue(prefixedPayload, for: char, type: .withoutResponse)
+            log("  Sent [0x26 + payload] to Sidus control (2B12)")
 
-            // Send to mesh proxy characteristic (2ADD) if available
+            // Also try raw payload without prefix
+            peripheral.writeValue(payload, for: char, type: .withoutResponse)
+            log("  Sent RAW to Sidus control (2B12)")
+        }
+
+        // Method 2: Try mesh proxy with encryption (includes opcode in MeshCrypto)
+        if let meshPDU = MeshCrypto.createMeshProxyPDU(accessPayload: payload) {
             if let char = meshProxyIn {
                 peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
-                log("  Sent via Mesh Proxy (2ADD)")
+                log("  Sent ENCRYPTED to Mesh Proxy (2ADD)")
             }
-            // Also try control characteristics
-            else if let char = controlCharacteristic {
-                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
-                log("  Sent via FF02")
-            }
-        } else {
-            log("  Failed to create mesh PDU")
         }
+
+        // NOTE: Telink commands to FF02 cause disconnects - disabled
+        // The light expects mesh-encrypted commands only
     }
 
     /// Current CCT value for combined commands
@@ -233,20 +240,36 @@ class BLEManager: NSObject, ObservableObject {
     func setPowerOn(_ on: Bool) {
         guard let peripheral = connectedPeripheral else { return }
 
-        // From packet capture - Sidus uses simple 01/00 for on/off
-        let cmd = Data([on ? 0x01 : 0x00])
-        log("setPower(\(on)) -> \(cmd.hexString)")
+        log("setPower(\(on))")
 
-        // Send to all writable characteristics
-        if let char = controlCharacteristic {
-            peripheral.writeValue(cmd, for: char, type: .withoutResponse)
-            log("  FF02 <- \(cmd.hexString)")
+        // Use OnOffProtocol format (10-byte Sidus command)
+        let powerCmd = OnOffProtocol(on: on)
+        let payload = powerCmd.getSendData()
+        log("  Sidus power payload: \(payload.hexString)")
+
+        // Method 1: Send to Sidus control (2B12) with opcode prefix
+        if let char = sidusControl {
+            // Try with Sidus opcode 0x26 prepended
+            var prefixedPayload = Data([0x26])
+            prefixedPayload.append(payload)
+            peripheral.writeValue(prefixedPayload, for: char, type: .withoutResponse)
+            log("  Sent [0x26 + payload] to Sidus control (2B12)")
+
+            // Also try raw payload
+            peripheral.writeValue(payload, for: char, type: .withoutResponse)
+            log("  Sent RAW to Sidus control (2B12)")
         }
 
-        if let char = char7FCB {
-            peripheral.writeValue(cmd, for: char, type: .withoutResponse)
-            log("  7FCB <- \(cmd.hexString)")
+        // Method 2: Send via mesh proxy (includes opcode in MeshCrypto)
+        if let meshPDU = MeshCrypto.createMeshProxyPDU(accessPayload: payload) {
+            if let char = meshProxyIn {
+                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
+                log("  Sent ENCRYPTED to Mesh Proxy (2ADD)")
+            }
         }
+
+        // NOTE: Telink commands to FF02/7FCB cause disconnects - disabled
+        // The light expects mesh-encrypted commands only
     }
 
     func setEffect(_ effectId: Int, speed: Int = 50) {
@@ -298,6 +321,9 @@ class BLEManager: NSObject, ObservableObject {
         connectedLight = nil
         controlCharacteristic = nil
         statusCharacteristic = nil
+        meshProxyIn = nil
+        char7FCB = nil
+        sidusControl = nil
         connectionState = .disconnected
     }
 
@@ -480,8 +506,8 @@ extension BLEManager: CBPeripheralDelegate {
             // Priority 3: Sidus/Aputure custom control characteristic
             let aputureControlUUID = CBUUID(string: "00010203-0405-0607-0809-0a0b0c0d2b12")
             if characteristic.uuid == aputureControlUUID && isWritable {
-                controlCharacteristic = characteristic
-                log("    >>> Found Sidus control characteristic!")
+                sidusControl = characteristic
+                log("    >>> Found Sidus control characteristic (2B12)!")
             }
 
             // Priority 4: Mesh Proxy Data In (2ADD) - this is the PRIMARY for mesh commands
@@ -516,6 +542,17 @@ extension BLEManager: CBPeripheralDelegate {
             // Don't send init sequence - it was causing disconnects
             log("Connected and ready - waiting for user commands")
             // sendInitSequence()
+
+            // Log characteristics summary after a short delay to let all services complete
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self = self else { return }
+                self.log("=== Control Characteristics Found ===")
+                self.log("  sidusControl (2B12): \(self.sidusControl != nil ? "YES" : "NO")")
+                self.log("  meshProxyIn (2ADD): \(self.meshProxyIn != nil ? "YES" : "NO")")
+                self.log("  controlCharacteristic (FF02): \(self.controlCharacteristic != nil ? "YES" : "NO")")
+                self.log("  char7FCB: \(self.char7FCB != nil ? "YES" : "NO")")
+                self.log("=====================================")
+            }
         }
     }
 
@@ -562,6 +599,13 @@ extension BLEManager: CBPeripheralDelegate {
         if let data = characteristic.value {
             log("Received from \(characteristic.uuid): \(data.hexString)")
             lastReceivedData = data
+
+            // Parse mesh proxy data from 2ADE to extract network parameters
+            // Note: 16-bit UUIDs may expand to full 128-bit format, so check both
+            let uuidString = characteristic.uuid.uuidString.uppercased()
+            if uuidString.contains("2ADE") || uuidString.contains("2ADC") {
+                MeshCrypto.parseIncomingPDU(data)
+            }
         }
     }
 

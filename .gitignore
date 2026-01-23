@@ -54,3 +54,8 @@ Thumb.db
 
 # Analysis files (too large for git)
 analysis/
+
+# Android bugreports (contain personal data)
+bugreport.zip
+bugreport_extract/
+*.hci.log

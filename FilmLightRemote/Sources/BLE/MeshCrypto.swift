@@ -26,9 +26,14 @@ class MeshCrypto {
     private static var nid: UInt8 = 0
     private static var aid: UInt8 = 0
 
+    // MARK: - Observed Network Parameters (from light's beacon)
+
+    static var observedNID: UInt8? = nil  // NID seen in light's mesh beacon
+    static var useObservedNID: Bool = true  // Try using light's NID
+
     // MARK: - Sequence Number
 
-    private static var sequenceNumber: UInt32 = 1
+    private static var sequenceNumber: UInt32 = 0x010000  // Start high to avoid replay rejection
 
     // MARK: - Initialization
 
@@ -73,9 +78,9 @@ class MeshCrypto {
         let seq = sequenceNumber
 
         // Build access message with Sidus vendor opcode
-        // Vendor opcode format: 0xC0-0xC3 + 2-byte vendor ID
-        // Sidus uses opcode 0x26 which maps to vendor model
-        var accessMessage: [UInt8] = [0xC0, 0x11, 0x02]  // Vendor opcode + Telink vendor ID (0x0211, little endian)
+        // Vendor opcode format: 0xC0 + 2-byte vendor ID (Telink = 0x0211, little endian)
+        // Then Sidus sub-opcode (0x26 = 38) followed by payload
+        var accessMessage: [UInt8] = [0xC0, 0x11, 0x02, 0x26]  // Vendor opcode + Telink vendor ID + Sidus opcode
         accessMessage.append(contentsOf: accessPayload)
 
         print("MeshCrypto: Access message = \(accessMessage.map { String(format: "%02X", $0) }.joined(separator: " "))")
@@ -138,7 +143,14 @@ class MeshCrypto {
         )
 
         // Build final network PDU
-        var networkPDU: [UInt8] = [nidByte]
+        // Try using observed NID from light if available (for key mismatch debugging)
+        var finalNidByte = nidByte
+        if useObservedNID, let obsNID = observedNID {
+            finalNidByte = (ivi << 7) | (obsNID & 0x7F)
+            print("MeshCrypto: Using OBSERVED NID = \(String(format: "0x%02X", obsNID)) instead of calculated \(String(format: "0x%02X", nid))")
+        }
+
+        var networkPDU: [UInt8] = [finalNidByte]
         networkPDU.append(contentsOf: obfuscatedHeader)
         networkPDU.append(contentsOf: encryptedNet)
 
@@ -151,6 +163,37 @@ class MeshCrypto {
         print("MeshCrypto: Proxy PDU = \(proxyPDU.map { String(format: "%02X", $0) }.joined(separator: " "))")
 
         return Data(proxyPDU)
+    }
+
+    // MARK: - Beacon Parsing
+
+    /// Parse incoming mesh proxy PDU and extract network info
+    static func parseIncomingPDU(_ data: Data) {
+        guard data.count >= 2 else { return }
+
+        let proxyHeader = data[0]
+        let sarType = proxyHeader & 0x3F  // Lower 6 bits = message type
+
+        if sarType == 0x01 {
+            // Network PDU
+            let nidByte = data[1]
+            let ivi = (nidByte >> 7) & 0x01
+            let incomingNID = nidByte & 0x7F
+
+            print("MeshCrypto: Received Network PDU - IVI=\(ivi), NID=\(String(format: "0x%02X", incomingNID))")
+
+            if observedNID == nil || observedNID != incomingNID {
+                observedNID = incomingNID
+                print("MeshCrypto: *** Stored observed NID = \(String(format: "0x%02X", incomingNID)) ***")
+            }
+        } else if sarType == 0x03 {
+            // Mesh Beacon
+            print("MeshCrypto: Received Mesh Beacon")
+            if data.count >= 2 {
+                let beaconType = data[1]
+                print("MeshCrypto: Beacon type = \(beaconType)")
+            }
+        }
     }
 
     // MARK: - Key Derivation Functions
