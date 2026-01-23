@@ -20,6 +20,7 @@ enum BLEConnectionState: Equatable {
     case connecting
     case discoveringServices
     case connected
+    case ready
     case failed(String)
 }
 
@@ -53,6 +54,8 @@ class BLEManager: NSObject, ObservableObject {
     private var connectedPeripheral: CBPeripheral?
     private var controlCharacteristic: CBCharacteristic?
     private var statusCharacteristic: CBCharacteristic?
+    private var meshProxyIn: CBCharacteristic?  // 2ADD
+    private var char7FCB: CBCharacteristic?     // Alternative control
 
     // Scanning
     private var scanTimer: Timer?
@@ -126,41 +129,166 @@ class BLEManager: NSObject, ObservableObject {
             return
         }
 
-        log("Sending: \(data.hexString)")
-        peripheral.writeValue(data, for: characteristic, type: .withResponse)
+        log("Sending to \(characteristic.uuid): \(data.hexString)")
+
+        // Use writeWithoutResponse if supported, otherwise use withResponse
+        let writeType: CBCharacteristicWriteType
+        if characteristic.properties.contains(.writeWithoutResponse) {
+            writeType = .withoutResponse
+            log("  Using writeWithoutResponse")
+        } else {
+            writeType = .withResponse
+            log("  Using writeWithResponse")
+        }
+
+        peripheral.writeValue(data, for: characteristic, type: writeType)
     }
 
-    // Placeholder command builders - implement after analyzing packet captures
-    func setIntensity(_ percent: Int) {
-        // TODO: Implement after protocol analysis
-        // Example: let command = buildIntensityCommand(percent)
-        // sendCommand(command)
-        log("setIntensity(\(percent)) - Not yet implemented")
+    /// Try sending to all writable characteristics (for debugging)
+    func sendToAllWritable(_ data: Data) {
+        guard let peripheral = connectedPeripheral,
+              let services = peripheral.services else {
+            log("Error: No services available")
+            return
+        }
+
+        log("Sending to ALL writable characteristics: \(data.hexString)")
+
+        for service in services {
+            guard let characteristics = service.characteristics else { continue }
+            for char in characteristics {
+                if char.properties.contains(.writeWithoutResponse) {
+                    peripheral.writeValue(data, for: char, type: .withoutResponse)
+                    log("  Sent to \(char.uuid) (writeWithoutResponse)")
+                } else if char.properties.contains(.write) {
+                    peripheral.writeValue(data, for: char, type: .withResponse)
+                    log("  Sent to \(char.uuid) (write)")
+                }
+            }
+        }
     }
+
+    // MARK: - Light Control Commands (using Sidus Protocol)
+
+    /// Current intensity for CCT mode (stored for combined commands)
+    private var currentIntensity: Int = 50
+
+    func setIntensity(_ percent: Int) {
+        currentIntensity = percent
+        guard let peripheral = connectedPeripheral else { return }
+
+        log("setIntensity(\(percent)%) - using mesh encryption...")
+
+        // Create Sidus CCT protocol command
+        let cctCmd = CCTProtocol(intensityPercent: Double(percent), cctKelvin: currentCCT)
+        let payload = cctCmd.getSendData()
+
+        log("  Sidus payload: \(payload.hexString)")
+
+        // Create encrypted mesh proxy PDU
+        if let meshPDU = MeshCrypto.createMeshProxyPDU(accessPayload: payload) {
+            log("  Mesh PDU: \(meshPDU.hexString)")
+
+            // Send to mesh proxy characteristic (2ADD) if available
+            if let char = meshProxyIn {
+                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
+                log("  Sent via Mesh Proxy (2ADD)")
+            }
+            // Also try control characteristics
+            else if let char = controlCharacteristic {
+                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
+                log("  Sent via FF02")
+            }
+        } else {
+            log("  Failed to create mesh PDU")
+        }
+    }
+
+    /// Current CCT value for combined commands
+    private var currentCCT: Int = 5600
 
     func setCCT(_ kelvin: Int) {
-        // TODO: Implement after protocol analysis
-        log("setCCT(\(kelvin)) - Not yet implemented")
+        currentCCT = kelvin
+
+        // Try simple format: [0x02] [cct_high] [cct_low]
+        let cctValue = UInt16(kelvin)
+        let simpleCmd = Data([0x02, UInt8(cctValue >> 8), UInt8(cctValue & 0xFF)])
+        log("setCCT(\(kelvin)K) simple -> \(simpleCmd.hexString)")
+        sendCommand(simpleCmd)
     }
 
     func setRGB(red: Int, green: Int, blue: Int) {
-        // TODO: Implement after protocol analysis
-        log("setRGB(\(red), \(green), \(blue)) - Not yet implemented")
+        // Convert RGB to HSI and send
+        let (h, s, i) = rgbToHSI(red: red, green: green, blue: blue)
+        setHSI(hue: h, saturation: s, intensity: i)
     }
 
     func setHSI(hue: Int, saturation: Int, intensity: Int) {
-        // TODO: Implement after protocol analysis
-        log("setHSI(\(hue), \(saturation), \(intensity)) - Not yet implemented")
+        let cmd = HSIProtocol(intensityPercent: Double(intensity), hue: hue, saturationPercent: Double(saturation))
+        let data = cmd.getSendData()
+        log("setHSI(h:\(hue), s:\(saturation), i:\(intensity)) -> \(data.hexString)")
+        sendCommand(data)
     }
 
     func setPowerOn(_ on: Bool) {
-        // TODO: Implement after protocol analysis
-        log("setPower(\(on)) - Not yet implemented")
+        guard let peripheral = connectedPeripheral else { return }
+
+        // From packet capture - Sidus uses simple 01/00 for on/off
+        let cmd = Data([on ? 0x01 : 0x00])
+        log("setPower(\(on)) -> \(cmd.hexString)")
+
+        // Send to all writable characteristics
+        if let char = controlCharacteristic {
+            peripheral.writeValue(cmd, for: char, type: .withoutResponse)
+            log("  FF02 <- \(cmd.hexString)")
+        }
+
+        if let char = char7FCB {
+            peripheral.writeValue(cmd, for: char, type: .withoutResponse)
+            log("  7FCB <- \(cmd.hexString)")
+        }
     }
 
     func setEffect(_ effectId: Int, speed: Int = 50) {
-        // TODO: Implement after protocol analysis
+        // Effects not yet implemented - requires effect protocol analysis
         log("setEffect(\(effectId), speed: \(speed)) - Not yet implemented")
+    }
+
+    /// Convert RGB to HSI
+    private func rgbToHSI(red: Int, green: Int, blue: Int) -> (hue: Int, saturation: Int, intensity: Int) {
+        let r = Double(red) / 255.0
+        let g = Double(green) / 255.0
+        let b = Double(blue) / 255.0
+
+        let minVal = min(r, g, b)
+        let maxVal = max(r, g, b)
+        let delta = maxVal - minVal
+
+        // Intensity
+        let i = (r + g + b) / 3.0
+
+        // Saturation
+        let s: Double
+        if i == 0 {
+            s = 0
+        } else {
+            s = 1 - (minVal / i)
+        }
+
+        // Hue
+        var h: Double = 0
+        if delta != 0 {
+            if maxVal == r {
+                h = 60 * fmod((g - b) / delta, 6)
+            } else if maxVal == g {
+                h = 60 * ((b - r) / delta + 2)
+            } else {
+                h = 60 * ((r - g) / delta + 4)
+            }
+        }
+        if h < 0 { h += 360 }
+
+        return (Int(h), Int(s * 100), Int(i * 100))
     }
 
     // MARK: - Private Methods
@@ -327,9 +455,52 @@ extension BLEManager: CBPeripheralDelegate {
                 peripheral.readValue(for: characteristic)
             }
 
-            // Store known characteristics (update UUIDs after analysis)
+            // Store known characteristics
+            // Check for various Aputure/Sidus characteristic patterns
+            let uuidString = characteristic.uuid.uuidString.uppercased()
+            let isWritable = characteristic.properties.contains(.write) || characteristic.properties.contains(.writeWithoutResponse)
+
+            // Log all writable characteristics for debugging
+            if isWritable {
+                log("    Writable: \(characteristic.uuid)")
+            }
+
+            // Priority 1: FF02 in service FF01 - simple control characteristic for SLCK devices
+            if uuidString == "FF02" && isWritable {
+                controlCharacteristic = characteristic
+                log("    >>> Using FF02 as control characteristic!")
+            }
+
+            // Priority 2: 7FCB characteristic
+            if uuidString == "7FCB" && isWritable && controlCharacteristic == nil {
+                controlCharacteristic = characteristic
+                log("    >>> Using 7FCB as control characteristic!")
+            }
+
+            // Priority 3: Sidus/Aputure custom control characteristic
+            let aputureControlUUID = CBUUID(string: "00010203-0405-0607-0809-0a0b0c0d2b12")
+            if characteristic.uuid == aputureControlUUID && isWritable {
+                controlCharacteristic = characteristic
+                log("    >>> Found Sidus control characteristic!")
+            }
+
+            // Priority 4: Mesh Proxy Data In (2ADD) - this is the PRIMARY for mesh commands
+            if uuidString == "2ADD" {
+                meshProxyIn = characteristic
+                log("    >>> Found Mesh Proxy Data In (2ADD)! Properties: \(characteristic.properties.rawValue)")
+                // 2ADD may only support writeWithoutResponse
+            }
+
+            // Store 7FCB for alternative testing
+            if uuidString == "7FCB" && isWritable {
+                char7FCB = characteristic
+                log("    >>> Found 7FCB characteristic!")
+            }
+
+            // Standard Aputure UUIDs
             if characteristic.uuid == AputureUUIDs.controlCharacteristic {
                 controlCharacteristic = characteristic
+                log("    >>> Found standard Aputure control characteristic")
             } else if characteristic.uuid == AputureUUIDs.statusCharacteristic {
                 statusCharacteristic = characteristic
             }
@@ -340,6 +511,44 @@ extension BLEManager: CBPeripheralDelegate {
             connectionState = .connected
             if let light = discoveredLights.first(where: { $0.peripheral.identifier == peripheral.identifier }) {
                 connectedLight = light
+            }
+
+            // Don't send init sequence - it was causing disconnects
+            log("Connected and ready - waiting for user commands")
+            // sendInitSequence()
+        }
+    }
+
+    /// Send initialization sequence from captured Sidus Link traffic
+    private func sendInitSequence() {
+        guard let peripheral = connectedPeripheral else { return }
+
+        log("Sending init sequence (from Sidus capture)...")
+
+        // From packet capture - these are the exact init commands Sidus sends
+        let initCommands: [Data] = [
+            Data([0x01]),                    // ON
+            Data([0x00]),                    // OFF
+            Data([0xFF]),                    // Full brightness
+            Data([0x01, 0x00]),              // Status?
+            Data([0x01, 0xFF]),              // On + full?
+            Data([0xF0, 0x01, 0x00, 0x00]),  // Init command from capture
+            Data([0xF0, 0x00, 0x00, 0x00]),  // Another init command
+        ]
+
+        // Send to FF02
+        if let char = controlCharacteristic {
+            for cmd in initCommands {
+                peripheral.writeValue(cmd, for: char, type: .withoutResponse)
+                log("  FF02 init <- \(cmd.hexString)")
+            }
+        }
+
+        // Send to 7FCB
+        if let char = char7FCB {
+            for cmd in initCommands {
+                peripheral.writeValue(cmd, for: char, type: .withoutResponse)
+                log("  7FCB init <- \(cmd.hexString)")
             }
         }
     }

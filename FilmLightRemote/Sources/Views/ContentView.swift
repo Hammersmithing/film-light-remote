@@ -84,7 +84,7 @@ struct ConnectionStatusBar: View {
 
     private var statusColor: Color {
         switch bleManager.connectionState {
-        case .connected: return .green
+        case .connected, .ready: return .green
         case .connecting, .discoveringServices, .scanning: return .orange
         case .disconnected: return .gray
         case .failed: return .red
@@ -94,6 +94,7 @@ struct ConnectionStatusBar: View {
     private var statusText: String {
         switch bleManager.connectionState {
         case .connected: return "Connected"
+        case .ready: return "Ready"
         case .connecting: return "Connecting..."
         case .discoveringServices: return "Discovering services..."
         case .scanning: return "Scanning..."

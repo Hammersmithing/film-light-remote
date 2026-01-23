@@ -51,3 +51,6 @@ Thumb.db
 *~
 .idea/
 .vscode/
+
+# Analysis files (too large for git)
+analysis/

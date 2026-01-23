@@ -1,20 +1,6 @@
 # Film Light Remote
 
-An iOS app to control Aputure film lights (STORM 80c, LS C series, MC, Amaran) via Bluetooth Low Energy, providing a streamlined alternative to the official Sidus Link app.
-
-## Motivation
-
-The official **Sidus Link** app for controlling Aputure lights has several limitations:
-- Requires account creation and cloud connectivity
-- Cluttered interface with features many users don't need
-- Can be slow to connect and respond
-- Limited customization options
-
-**Film Light Remote** aims to provide:
-- Direct BLE control with no cloud dependency
-- Fast, responsive interface optimized for on-set use
-- Simple controls focused on the essentials (intensity, color temperature, effects)
-- Open protocol documentation for the community
+An iOS app to control Aputure/Amaran film lights via Bluetooth Low Energy, providing a streamlined alternative to the official Sidus Link app.
 
 ## Project Status
 
@@ -22,44 +8,68 @@ The official **Sidus Link** app for controlling Aputure lights has several limit
 |-------|--------|
 | App UI Structure | Complete |
 | BLE Connection | Complete |
-| Debug/Analysis Tools | Complete |
-| Protocol Discovery | **In Progress** |
-| Light Control Commands | Pending |
+| Protocol Discovery | Complete |
+| Encryption Keys Extracted | Complete |
+| Mesh Encryption Implementation | Complete |
+| Light Control Commands | Testing |
 
-The app is fully functional for BLE scanning and connection. The next step is reverse engineering the Aputure BLE protocol by capturing traffic from the Sidus Link app.
+## Key Discovery: Bluetooth Mesh Encryption
+
+**The lights use full Bluetooth Mesh encryption**, not simple BLE writes. Through APK decompilation and packet capture analysis, we've extracted the encryption keys and implemented the complete mesh protocol.
+
+### Extracted Keys (from Sidus Link APK)
+
+| Key | Value | Notes |
+|-----|-------|-------|
+| Network Key | `7DD7364CD842AD18C17C74656C696E6B` | Last 6 bytes = "telink" |
+| App Key | `63964771734FBD76E3B474656C696E6B` | Last 6 bytes = "telink" |
+| IV Index | `0x12345678` | Default initialization vector |
+
+See [docs/protocol.md](docs/protocol.md) for complete technical documentation.
+
+## Architecture
+
+```
+Application Layer (10-byte Sidus command)
+         ↓
+Access Layer Encryption (AES-CCM with App Key)
+         ↓
+Lower Transport PDU (SEG=0, AKF=1, AID)
+         ↓
+Network Layer Encryption (AES-CCM with derived keys)
+         ↓
+Privacy Obfuscation (XOR with PECB)
+         ↓
+Mesh Proxy PDU (written to characteristic 0x2ADD)
+```
 
 ## Target Devices
 
-| Device | Priority | Status |
-|--------|----------|--------|
-| Aputure STORM 80c | Primary | Protocol TBD |
-| Aputure LS C120d II | Secondary | Protocol TBD |
-| Aputure LS C300d II | Secondary | Protocol TBD |
-| Aputure MC | Secondary | Protocol TBD |
-| Amaran 100/200 series | Tertiary | Protocol TBD |
+| Device | Status |
+|--------|--------|
+| Amaran 120C | Primary test device |
+| Aputure STORM series | Should work (same protocol) |
+| Aputure LS C series | Should work |
+| Amaran 100/200 series | Should work |
 
-Most Aputure/Amaran lights likely share a similar or identical BLE protocol.
+Devices appear as "SLCK Light" or "ALAM" in BLE scans.
 
 ## Features
 
 ### Implemented
-- **BLE Scanner** - Discover nearby Bluetooth devices with signal strength indicators
-- **Connection Management** - Connect/disconnect with status feedback
-- **Debug Log** - Real-time view of all BLE traffic (services, characteristics, data)
-- **Raw Command Input** - Send arbitrary hex commands for protocol testing
-- **Control UI** - Full interface ready for CCT, HSI, RGBW, and Effects modes
-- **Presets** - Quick access to common lighting setups (Daylight, Tungsten, etc.)
+- BLE scanner with signal strength sorting
+- Connection management with status feedback
+- Debug log viewer for BLE traffic analysis
+- Full Bluetooth Mesh encryption (k2, k4, AES-CCM)
+- CCT Protocol (color temperature control)
+- HSI Protocol (hue/saturation/intensity)
+- Power on/off commands
+- Control UI for CCT, HSI, RGBW, Effects modes
+- Lighting presets (Daylight, Tungsten, etc.)
 
-### Planned (after protocol discovery)
-- [ ] Power on/off control
-- [ ] Intensity adjustment (0-100%)
-- [ ] CCT control (2700K-6500K)
-- [ ] HSI mode (Hue 0-360, Saturation 0-100%)
-- [ ] RGBW direct control
-- [ ] Built-in effects (Lightning, Fire, TV Flicker, etc.)
-- [ ] Custom preset saving
-- [ ] Multi-light grouping
-- [ ] Widget for quick access
+### In Testing
+- Mesh-encrypted command delivery
+- Device response handling
 
 ## Project Structure
 
@@ -68,20 +78,29 @@ film-light-remote/
 ├── FilmLightRemote/
 │   ├── Sources/
 │   │   ├── App/
-│   │   │   └── FilmLightRemoteApp.swift      # SwiftUI app entry point
+│   │   │   └── FilmLightRemoteApp.swift
 │   │   ├── BLE/
-│   │   │   └── BLEManager.swift              # Core Bluetooth manager
+│   │   │   ├── BLEManager.swift          # Core Bluetooth manager
+│   │   │   ├── MeshCrypto.swift          # Bluetooth Mesh encryption
+│   │   │   ├── SidusMeshConfig.swift     # Extracted keys & UUIDs
+│   │   │   ├── SidusMeshManager.swift    # Alternative mesh manager
+│   │   │   └── SidusProtocols.swift      # CCT/HSI command encoding
 │   │   ├── Models/
-│   │   │   └── LightState.swift              # Light state, modes, presets
+│   │   │   └── LightState.swift
 │   │   └── Views/
-│   │       ├── ContentView.swift             # Main navigation
-│   │       ├── ScannerView.swift             # BLE device discovery
-│   │       ├── LightControlView.swift        # CCT/HSI/RGB/Effects controls
-│   │       └── DebugLogView.swift            # BLE traffic analyzer
+│   │       ├── ContentView.swift
+│   │       ├── ScannerView.swift
+│   │       ├── LightControlView.swift
+│   │       └── DebugLogView.swift
 │   └── Resources/
-│       ├── Info.plist                        # Bluetooth permissions
+│       ├── Info.plist
 │       └── FilmLightRemote.entitlements
-├── project.yml                               # XcodeGen configuration
+├── docs/
+│   └── protocol.md                       # Complete protocol documentation
+├── analysis/
+│   ├── sidus_link.apk                    # Original APK for reference
+│   └── decompiled/                       # Decompiled source files
+├── project.yml                           # XcodeGen configuration
 └── README.md
 ```
 
@@ -91,12 +110,13 @@ film-light-remote/
 - macOS with Xcode 15.0+
 - iOS 16.0+ device (BLE does not work in simulator)
 - [Homebrew](https://brew.sh) (for XcodeGen)
+- Apple Developer account (for device deployment)
 
 ### Build Instructions
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/jahammersmith/film-light-remote.git
+   git clone https://github.com/Hammersmithing/film-light-remote.git
    cd film-light-remote
    ```
 
@@ -116,129 +136,63 @@ film-light-remote/
    - Go to Signing & Capabilities
    - Select your Development Team
 
-5. Build and run on a physical iOS device
+5. Build and run on a physical iOS device (Cmd+R)
 
-### First Run
+### Dependencies
 
-1. Launch the app and grant Bluetooth permissions when prompted
-2. Tap the antenna icon to scan for devices
-3. Your Aputure light should appear in the list (make sure it's powered on)
-4. Tap to connect
-5. Use the Debug Log (terminal icon) to observe BLE communication
+- **CryptoSwift** - For AES-CCM and AES-CMAC mesh encryption
 
-## BLE Protocol Reverse Engineering
+## Protocol Documentation
 
-### Why Reverse Engineering?
-
-Aputure does not publish their BLE protocol. To control the lights directly, we need to:
-1. Capture BLE traffic between Sidus Link and the light
-2. Analyze the packet structure
-3. Identify commands for each function
-4. Implement the protocol in our app
-
-### Capture Methods
-
-#### Method 1: Android HCI Snoop Log (Recommended)
-
-1. On an Android device, enable Developer Options
-2. Go to Developer Options → Enable Bluetooth HCI snoop log
-3. Install Sidus Link, connect to your light
-4. Perform various operations (change intensity, color temp, effects)
-5. Disable the snoop log
-6. Extract the log:
-   ```bash
-   adb pull /sdcard/btsnoop_hci.log
-   ```
-7. Open in Wireshark
-
-#### Method 2: nRF Sniffer (Best Quality)
-
-- Use Nordic nRF52840 dongle with nRF Sniffer firmware
-- Captures all BLE traffic passively
-- Better for analyzing connection setup
-
-#### Method 3: Ubertooth One
-
-- Open-source Bluetooth sniffer
-- More complex setup but very capable
-
-### Wireshark Analysis
-
-Filter BLE traffic:
-```
-btatt or btle
-```
-
-Key things to identify:
-1. **Service UUIDs** - Found during GATT discovery
-2. **Characteristic UUIDs** - Control and status characteristics
-3. **Write patterns** - Commands sent when changing settings
-4. **Notification data** - Status updates from the light
-
-### Protocol Documentation
-
-Once discovered, protocol details will be documented in `/docs/protocol.md`:
-
-```
-Expected format (hypothetical):
-┌──────┬──────────┬─────────┬──────────┐
-│ CMD  │ SUBCMD   │ VALUE   │ CHECKSUM │
-│ 1B   │ 1B       │ 1-4B    │ 1B       │
-└──────┴──────────┴─────────┴──────────┘
-
-Commands to discover:
-- Power: ON/OFF
-- Intensity: 0-100%
-- CCT: 2700K-6500K
-- HSI: H(0-360), S(0-100), I(0-100)
-- Effects: ID + Speed
-```
-
-## Contributing
-
-### Protocol Contributions Welcome!
-
-If you have:
-- Packet captures from Sidus Link
-- Protocol documentation for any Aputure/Amaran light
-- Working command sequences
-
-Please open an issue or PR!
-
-### Development
-
-1. Fork the repository
-2. Create a feature branch
-3. Make changes
-4. Run `xcodegen generate` if you modified project.yml
-5. Test on a physical device
-6. Submit a PR
+See [docs/protocol.md](docs/protocol.md) for:
+- Complete encryption key details
+- Key derivation functions (k2, k4)
+- Message encryption flow (9 steps)
+- CCT/HSI command bit layouts
+- BLE service/characteristic UUIDs
+- Implementation notes
 
 ## Technical Details
 
-### Core Bluetooth Implementation
+### Bluetooth Mesh Implementation
 
-The `BLEManager` class handles:
-- Central manager state monitoring
-- Peripheral scanning with filtering
-- Connection lifecycle
-- Service/characteristic discovery
-- Read/write/notify operations
-- Debug logging
+The `MeshCrypto` class implements:
+- **k2 function**: Derives NID, encryption key, privacy key from network key
+- **k4 function**: Derives AID from application key
+- **AES-CCM encryption**: For both access and network layers
+- **Privacy obfuscation**: XOR with PECB for header protection
+- **Mesh Proxy PDU construction**: Complete packet assembly
 
-### Light State Model
+### Command Protocols
 
-`LightState` supports four modes:
-- **CCT** - Color temperature (Kelvin)
-- **HSI** - Hue, Saturation, Intensity
-- **RGBW** - Direct color channel control
-- **Effects** - Built-in lighting effects
+Commands are 10 bytes with checksum in byte 0:
 
-### SwiftUI Architecture
+**CCT Protocol (type=2):**
+- Intensity: 0-1000 (0-100%)
+- CCT: 320-560 (3200K-5600K)
+- GM: 0-200 (green-magenta adjustment)
 
-- `@StateObject` for BLEManager (app-wide singleton)
-- `@ObservedObject` for LightState (per-connection)
-- `@EnvironmentObject` for dependency injection
+**HSI Protocol (type=1):**
+- Intensity: 0-1000
+- Hue: 0-360 degrees
+- Saturation: 0-100%
+
+### Key BLE Characteristics
+
+| UUID | Description |
+|------|-------------|
+| 0x2ADD | Mesh Proxy Data In (write commands here) |
+| 0x2ADE | Mesh Proxy Data Out (receive responses) |
+| 0xFF02 | Alternative control characteristic |
+
+## Reverse Engineering Process
+
+1. **APK Decompilation**: Used jadx to decompile Sidus Link APK
+2. **Key Extraction**: Found default mesh keys in `FastProvisioningConfiguration.java`
+3. **Protocol Analysis**: Decoded CCT/HSI commands from `CCTProtocol.java`, `HSIProtocol.java`
+4. **Packet Capture**: Captured BLE traffic using Android btsnoop_hci.log
+5. **Mesh Analysis**: Confirmed full Bluetooth Mesh encryption in captured packets
+6. **Implementation**: Ported encryption to Swift using CryptoSwift
 
 ## Requirements
 
@@ -247,7 +201,14 @@ The `BLEManager` class handles:
 | iOS | 16.0+ |
 | Xcode | 15.0+ |
 | Swift | 5.9+ |
-| macOS | Sonoma 14.0+ (for development) |
+| macOS | Sonoma 14.0+ |
+
+## Contributing
+
+Contributions welcome! Especially:
+- Testing with different Aputure/Amaran models
+- Protocol improvements
+- Additional effect support
 
 ## License
 
@@ -255,10 +216,10 @@ MIT License - See [LICENSE](LICENSE) for details.
 
 ## Acknowledgments
 
-- Aputure for making excellent film lights
+- Telink Semiconductor for mesh SDK documentation
+- Nordic Semiconductor for BLE tools
 - The BLE reverse engineering community
-- Nordic Semiconductor for nRF tools
 
 ---
 
-**Note:** This project is not affiliated with or endorsed by Aputure or Sidus Link. Use at your own risk.
+**Disclaimer:** This project is not affiliated with or endorsed by Aputure, Sidus Link, or Telink. Use at your own risk. The extracted keys are default "fast provisioning" keys embedded in the official app.

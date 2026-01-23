@@ -9,11 +9,16 @@
 /* Begin PBXBuildFile section */
 		0A9282FEA8918D629FAEED8D /* LightControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AAE3FBEA794C6D7DA1D597D /* LightControlView.swift */; };
 		237646B1C10C3EAD06E7E978 /* DebugLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E0AD22691AC13AA834B0487 /* DebugLogView.swift */; };
+		4CEE24AC461D9679FB4DF680 /* SidusMeshManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = D28C143EC7176C074425F538 /* SidusMeshManager.swift */; };
+		906941AABFDCB09F3F60EE54 /* SidusMeshConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD8F4D6567CD5F653F4FF720 /* SidusMeshConfig.swift */; };
 		967A6D3B3784BF433641BE94 /* LightState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12300A661DDD19AB7992487 /* LightState.swift */; };
+		9CA18D2A805EBEDF789859F4 /* MeshCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992513CD5F1FAA9B84055887 /* MeshCrypto.swift */; };
+		9F4E8D7B81AF8C471777253E /* SidusProtocols.swift in Sources */ = {isa = PBXBuildFile; fileRef = D25EB2E3FBCB7C6799D4542F /* SidusProtocols.swift */; };
 		AD22780D400186BC14DF823B /* FilmLightRemoteApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46C0D7611C64BE31809559B3 /* FilmLightRemoteApp.swift */; };
 		C09358CAB6C704237479F3FE /* BLEManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E877B3320FD9730E91EC522 /* BLEManager.swift */; };
 		C137F62B9A5A9DD8C37EA7C0 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6460FFFCC181B4F8B9CCDC0D /* ContentView.swift */; };
 		F6520380E97A2CF03A4D2759 /* ScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7516003A19D055B376461731 /* ScannerView.swift */; };
+		FA5D2177F66FE33715125982 /* CryptoSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 6B538549EB6B5D82531EAA96 /* CryptoSwift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -22,10 +27,25 @@
 		5E0AD22691AC13AA834B0487 /* DebugLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogView.swift; sourceTree = "<group>"; };
 		6460FFFCC181B4F8B9CCDC0D /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		7516003A19D055B376461731 /* ScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerView.swift; sourceTree = "<group>"; };
+		992513CD5F1FAA9B84055887 /* MeshCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshCrypto.swift; sourceTree = "<group>"; };
 		9AAE3FBEA794C6D7DA1D597D /* LightControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightControlView.swift; sourceTree = "<group>"; };
+		AD8F4D6567CD5F653F4FF720 /* SidusMeshConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidusMeshConfig.swift; sourceTree = "<group>"; };
 		C12300A661DDD19AB7992487 /* LightState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightState.swift; sourceTree = "<group>"; };
+		D25EB2E3FBCB7C6799D4542F /* SidusProtocols.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidusProtocols.swift; sourceTree = "<group>"; };
+		D28C143EC7176C074425F538 /* SidusMeshManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidusMeshManager.swift; sourceTree = "<group>"; };
 		DCBC503C53982BEB3199AF30 /* Film Light Remote.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Film Light Remote.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		8E215C16851B18999DEE5002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FA5D2177F66FE33715125982 /* CryptoSwift in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		080E860E5F644D0207A2725F /* Products */ = {
@@ -59,6 +79,10 @@
 			isa = PBXGroup;
 			children = (
 				1E877B3320FD9730E91EC522 /* BLEManager.swift */,
+				992513CD5F1FAA9B84055887 /* MeshCrypto.swift */,
+				AD8F4D6567CD5F653F4FF720 /* SidusMeshConfig.swift */,
+				D28C143EC7176C074425F538 /* SidusMeshManager.swift */,
+				D25EB2E3FBCB7C6799D4542F /* SidusProtocols.swift */,
 			);
 			path = BLE;
 			sourceTree = "<group>";
@@ -107,6 +131,7 @@
 			buildConfigurationList = EF74309CFB386398847344E0 /* Build configuration list for PBXNativeTarget "FilmLightRemote" */;
 			buildPhases = (
 				AD73C086D5D581AF9C02BFF8 /* Sources */,
+				8E215C16851B18999DEE5002 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -114,6 +139,7 @@
 			);
 			name = FilmLightRemote;
 			packageProductDependencies = (
+				6B538549EB6B5D82531EAA96 /* CryptoSwift */,
 			);
 			productName = FilmLightRemote;
 			productReference = DCBC503C53982BEB3199AF30 /* Film Light Remote.app */;
@@ -126,9 +152,10 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 1500;
+				LastUpgradeCheck = 1620;
 				TargetAttributes = {
 					264DAB5395C727009F70C4F1 = {
+						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -143,6 +170,9 @@
 			);
 			mainGroup = F9F17139782469E453CC4753;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				E0FF897B42CC8F4C134439E2 /* XCRemoteSwiftPackageReference "CryptoSwift" */,
+			);
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -162,7 +192,11 @@
 				AD22780D400186BC14DF823B /* FilmLightRemoteApp.swift in Sources */,
 				0A9282FEA8918D629FAEED8D /* LightControlView.swift in Sources */,
 				967A6D3B3784BF433641BE94 /* LightState.swift in Sources */,
+				9CA18D2A805EBEDF789859F4 /* MeshCrypto.swift in Sources */,
 				F6520380E97A2CF03A4D2759 /* ScannerView.swift in Sources */,
+				906941AABFDCB09F3F60EE54 /* SidusMeshConfig.swift in Sources */,
+				4CEE24AC461D9679FB4DF680 /* SidusMeshManager.swift in Sources */,
+				9F4E8D7B81AF8C471777253E /* SidusProtocols.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -173,6 +207,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -230,6 +265,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -298,7 +334,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 68V2Q6SJH5;
+				DEVELOPMENT_TEAM = "";
 				INFOPLIST_FILE = FilmLightRemote/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -320,7 +356,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 68V2Q6SJH5;
+				DEVELOPMENT_TEAM = "";
 				INFOPLIST_FILE = FilmLightRemote/Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -356,6 +392,25 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		E0FF897B42CC8F4C134439E2 /* XCRemoteSwiftPackageReference "CryptoSwift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/krzyzanowskim/CryptoSwift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.8.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		6B538549EB6B5D82531EAA96 /* CryptoSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E0FF897B42CC8F4C134439E2 /* XCRemoteSwiftPackageReference "CryptoSwift" */;
+			productName = CryptoSwift;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = AA0F3B0C3FABE59437143ECD /* Project object */;
 }

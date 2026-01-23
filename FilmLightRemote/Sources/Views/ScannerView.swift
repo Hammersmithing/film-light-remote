@@ -30,7 +30,8 @@ struct ScannerView: View {
                     }
                     .padding()
                 } else {
-                    List(bleManager.discoveredLights) { light in
+                    // Sort by signal strength (strongest first)
+                    List(bleManager.discoveredLights.sorted { $0.rssi > $1.rssi }) { light in
                         Button {
                             bleManager.connect(to: light)
                             dismiss()
