@@ -50,13 +50,20 @@ class BLEManager: NSObject, ObservableObject {
     @Published var debugLog: [String] = []
 
     // Core Bluetooth
-    private var centralManager: CBCentralManager!
-    private var connectedPeripheral: CBPeripheral?
+    private(set) var centralManager: CBCentralManager!
+    private(set) var connectedPeripheral: CBPeripheral?
     private var controlCharacteristic: CBCharacteristic?
     private var statusCharacteristic: CBCharacteristic?
     private var meshProxyIn: CBCharacteristic?  // 2ADD
     private var char7FCB: CBCharacteristic?     // Alternative control
     private var sidusControl: CBCharacteristic? // 2B12 - Direct Sidus control
+    private var provisioningDataIn: CBCharacteristic?  // 2ADB
+    private var provisioningDataOut: CBCharacteristic? // 2ADC
+
+    /// Whether the connected device has provisioning service available
+    var isProvisioningAvailable: Bool {
+        return provisioningDataIn != nil && provisioningDataOut != nil
+    }
 
     // Scanning
     private var scanTimer: Timer?
@@ -324,6 +331,8 @@ class BLEManager: NSObject, ObservableObject {
         meshProxyIn = nil
         char7FCB = nil
         sidusControl = nil
+        provisioningDataIn = nil
+        provisioningDataOut = nil
         connectionState = .disconnected
     }
 
@@ -523,6 +532,18 @@ extension BLEManager: CBPeripheralDelegate {
                 log("    >>> Found 7FCB characteristic!")
             }
 
+            // Provisioning Data In (2ADB)
+            if uuidString == "2ADB" || uuidString.contains("2ADB") {
+                provisioningDataIn = characteristic
+                log("    >>> Found Provisioning Data In (2ADB)!")
+            }
+
+            // Provisioning Data Out (2ADC)
+            if uuidString == "2ADC" || uuidString.contains("2ADC") {
+                provisioningDataOut = characteristic
+                log("    >>> Found Provisioning Data Out (2ADC)!")
+            }
+
             // Standard Aputure UUIDs
             if characteristic.uuid == AputureUUIDs.controlCharacteristic {
                 controlCharacteristic = characteristic
@@ -551,6 +572,9 @@ extension BLEManager: CBPeripheralDelegate {
                 self.log("  meshProxyIn (2ADD): \(self.meshProxyIn != nil ? "YES" : "NO")")
                 self.log("  controlCharacteristic (FF02): \(self.controlCharacteristic != nil ? "YES" : "NO")")
                 self.log("  char7FCB: \(self.char7FCB != nil ? "YES" : "NO")")
+                self.log("  provisioningDataIn (2ADB): \(self.provisioningDataIn != nil ? "YES" : "NO")")
+                self.log("  provisioningDataOut (2ADC): \(self.provisioningDataOut != nil ? "YES" : "NO")")
+                self.log("  Provisioning Available: \(self.isProvisioningAvailable ? "YES" : "NO")")
                 self.log("=====================================")
             }
         }

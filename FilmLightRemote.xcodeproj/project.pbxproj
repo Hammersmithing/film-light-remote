@@ -19,6 +19,11 @@
 		C137F62B9A5A9DD8C37EA7C0 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6460FFFCC181B4F8B9CCDC0D /* ContentView.swift */; };
 		F6520380E97A2CF03A4D2759 /* ScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7516003A19D055B376461731 /* ScannerView.swift */; };
 		FA5D2177F66FE33715125982 /* CryptoSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 6B538549EB6B5D82531EAA96 /* CryptoSwift */; };
+		A1B2C3D4E5F6A7B8C9D0E1F2 /* ProvisioningCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4F5A6B7C8D9E0F1A2 /* ProvisioningCrypto.swift */; };
+		A2B3C4D5E6F7A8B9C0D1E2F3 /* ProvisioningPDU.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F6A7B8C9D0E1F2A3 /* ProvisioningPDU.swift */; };
+		A3B4C5D6E7F8A9B0C1D2E3F4 /* ProvisioningManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3C4D5E6F7A8B9C0D1E2F3A4 /* ProvisioningManager.swift */; };
+		A4B5C6D7E8F9A0B1C2D3E4F5 /* KeyStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4C5D6E7F8A9B0C1D2E3F4A5 /* KeyStorage.swift */; };
+		A5B6C7D8E9F0A1B2C3D4E5F6 /* ProvisioningView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5C6D7E8F9A0B1C2D3E4F5A6 /* ProvisioningView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,6 +39,11 @@
 		D25EB2E3FBCB7C6799D4542F /* SidusProtocols.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidusProtocols.swift; sourceTree = "<group>"; };
 		D28C143EC7176C074425F538 /* SidusMeshManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidusMeshManager.swift; sourceTree = "<group>"; };
 		DCBC503C53982BEB3199AF30 /* Film Light Remote.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Film Light Remote.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		B1C2D3E4F5A6B7C8D9E0F1A2 /* ProvisioningCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProvisioningCrypto.swift; sourceTree = "<group>"; };
+		B2C3D4E5F6A7B8C9D0E1F2A3 /* ProvisioningPDU.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProvisioningPDU.swift; sourceTree = "<group>"; };
+		B3C4D5E6F7A8B9C0D1E2F3A4 /* ProvisioningManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProvisioningManager.swift; sourceTree = "<group>"; };
+		B4C5D6E7F8A9B0C1D2E3F4A5 /* KeyStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyStorage.swift; sourceTree = "<group>"; };
+		B5C6D7E8F9A0B1C2D3E4F5A6 /* ProvisioningView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProvisioningView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -62,6 +72,7 @@
 				6460FFFCC181B4F8B9CCDC0D /* ContentView.swift */,
 				5E0AD22691AC13AA834B0487 /* DebugLogView.swift */,
 				9AAE3FBEA794C6D7DA1D597D /* LightControlView.swift */,
+				B5C6D7E8F9A0B1C2D3E4F5A6 /* ProvisioningView.swift */,
 				7516003A19D055B376461731 /* ScannerView.swift */,
 			);
 			path = Views;
@@ -79,7 +90,11 @@
 			isa = PBXGroup;
 			children = (
 				1E877B3320FD9730E91EC522 /* BLEManager.swift */,
+				B4C5D6E7F8A9B0C1D2E3F4A5 /* KeyStorage.swift */,
 				992513CD5F1FAA9B84055887 /* MeshCrypto.swift */,
+				B1C2D3E4F5A6B7C8D9E0F1A2 /* ProvisioningCrypto.swift */,
+				B3C4D5E6F7A8B9C0D1E2F3A4 /* ProvisioningManager.swift */,
+				B2C3D4E5F6A7B8C9D0E1F2A3 /* ProvisioningPDU.swift */,
 				AD8F4D6567CD5F653F4FF720 /* SidusMeshConfig.swift */,
 				D28C143EC7176C074425F538 /* SidusMeshManager.swift */,
 				D25EB2E3FBCB7C6799D4542F /* SidusProtocols.swift */,
@@ -189,9 +204,14 @@
 				C137F62B9A5A9DD8C37EA7C0 /* ContentView.swift in Sources */,
 				237646B1C10C3EAD06E7E978 /* DebugLogView.swift in Sources */,
 				AD22780D400186BC14DF823B /* FilmLightRemoteApp.swift in Sources */,
+				A4B5C6D7E8F9A0B1C2D3E4F5 /* KeyStorage.swift in Sources */,
 				0A9282FEA8918D629FAEED8D /* LightControlView.swift in Sources */,
 				967A6D3B3784BF433641BE94 /* LightState.swift in Sources */,
 				9CA18D2A805EBEDF789859F4 /* MeshCrypto.swift in Sources */,
+				A1B2C3D4E5F6A7B8C9D0E1F2 /* ProvisioningCrypto.swift in Sources */,
+				A3B4C5D6E7F8A9B0C1D2E3F4 /* ProvisioningManager.swift in Sources */,
+				A2B3C4D5E6F7A8B9C0D1E2F3 /* ProvisioningPDU.swift in Sources */,
+				A5B6C7D8E9F0A1B2C3D4E5F6 /* ProvisioningView.swift in Sources */,
 				F6520380E97A2CF03A4D2759 /* ScannerView.swift in Sources */,
 				906941AABFDCB09F3F60EE54 /* SidusMeshConfig.swift in Sources */,
 				4CEE24AC461D9679FB4DF680 /* SidusMeshManager.swift in Sources */,

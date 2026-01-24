@@ -238,10 +238,17 @@ class MeshCrypto {
         return result[15] & 0x3F
     }
 
-    /// s1 function - generates salt
-    private static func s1(_ m: [UInt8]) -> [UInt8] {
+    /// s1 function - generates salt (used by provisioning)
+    static func s1(_ m: [UInt8]) -> [UInt8] {
         let zero = [UInt8](repeating: 0, count: 16)
         return aes_cmac(key: zero, message: m)
+    }
+
+    /// k1 function - key derivation for provisioning
+    /// k1(N, SALT, P) = AES-CMAC(AES-CMAC(SALT, N), P)
+    static func k1(n: [UInt8], salt: [UInt8], p: [UInt8]) -> [UInt8] {
+        let t = aes_cmac(key: salt, message: n)
+        return aes_cmac(key: t, message: p)
     }
 
     // MARK: - Nonce Builders

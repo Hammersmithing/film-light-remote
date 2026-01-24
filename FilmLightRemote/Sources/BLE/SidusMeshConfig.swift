@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 /// Sidus Mesh configuration with encryption keys extracted from Sidus Link APK
 /// These are the default "Fast Provisioning" keys used by Aputure/Amaran lights
@@ -51,6 +52,24 @@ struct SidusMeshConfig {
 
     /// Mesh Provisioning Service
     static let meshProvisioningServiceUUID = "1827"
+    static let provisioningDataInUUID = "2ADB"
+    static let provisioningDataOutUUID = "2ADC"
+
+    // MARK: - Key Generation Helpers
+
+    /// Generate a random 16-byte network key
+    static func generateNetworkKey() -> Data {
+        var key = Data(count: 16)
+        _ = key.withUnsafeMutableBytes { SecRandomCopyBytes(kSecRandomDefault, 16, $0.baseAddress!) }
+        return key
+    }
+
+    /// Generate a random 16-byte application key
+    static func generateAppKey() -> Data {
+        var key = Data(count: 16)
+        _ = key.withUnsafeMutableBytes { SecRandomCopyBytes(kSecRandomDefault, 16, $0.baseAddress!) }
+        return key
+    }
 
     /// Custom Aputure Control Service
     static let aputureControlServiceUUID = "00010203-0405-0607-0809-0a0b0c0d1912"

@@ -4,6 +4,12 @@ struct ScannerView: View {
     @EnvironmentObject var bleManager: BLEManager
     @Environment(\.dismiss) var dismiss
 
+    /// Light selected for provisioning
+    @State private var lightToProvision: DiscoveredLight?
+
+    /// Whether provisioning sheet is shown
+    @State private var showProvisioningSheet = false
+
     var body: some View {
         NavigationStack {
             VStack {
@@ -52,6 +58,21 @@ struct ScannerView: View {
                                     .foregroundColor(signalStrengthColor(rssi: light.rssi))
                             }
                         }
+                        .contextMenu {
+                            Button {
+                                bleManager.connect(to: light)
+                                dismiss()
+                            } label: {
+                                Label("Connect", systemImage: "link")
+                            }
+
+                            Button {
+                                lightToProvision = light
+                                showProvisioningSheet = true
+                            } label: {
+                                Label("Provision Device", systemImage: "key.fill")
+                            }
+                        }
                     }
                 }
             }
@@ -85,6 +106,12 @@ struct ScannerView: View {
             }
             .onDisappear {
                 bleManager.stopScanning()
+            }
+            .sheet(isPresented: $showProvisioningSheet) {
+                if let light = lightToProvision {
+                    ProvisioningView(light: light)
+                        .environmentObject(bleManager)
+                }
             }
         }
     }
