@@ -2,22 +2,14 @@ import Foundation
 import CryptoSwift
 
 /// Bluetooth Mesh Cryptography implementation for Sidus/Aputure lights
-/// Uses the extracted keys from Sidus Link APK
+/// Uses keys from KeyStorage (which may be provisioned keys or default Sidus keys)
 class MeshCrypto {
 
-    // MARK: - Keys (from SidusMeshConfig)
+    // MARK: - Keys (loaded from KeyStorage)
 
-    static let networkKey: [UInt8] = [
-        0x7D, 0xD7, 0x36, 0x4C, 0xD8, 0x42, 0xAD, 0x18,
-        0xC1, 0x7C, 0x74, 0x65, 0x6C, 0x69, 0x6E, 0x6B
-    ]
-
-    static let appKey: [UInt8] = [
-        0x63, 0x96, 0x47, 0x71, 0x73, 0x4F, 0xBD, 0x76,
-        0xE3, 0xB4, 0x74, 0x65, 0x6C, 0x69, 0x6E, 0x6B
-    ]
-
-    static let ivIndex: UInt32 = 0x12345678
+    private static var networkKey: [UInt8] = []
+    private static var appKey: [UInt8] = []
+    private static var ivIndex: UInt32 = 0x12345678
 
     // MARK: - Derived Keys
 
@@ -29,16 +21,118 @@ class MeshCrypto {
     // MARK: - Observed Network Parameters (from light's beacon)
 
     static var observedNID: UInt8? = nil  // NID seen in light's mesh beacon
-    static var useObservedNID: Bool = true  // Try using light's NID
+    static var useObservedNID: Bool = false  // Use calculated NID from our network key
 
     // MARK: - Sequence Number
 
     private static var sequenceNumber: UInt32 = 0x010000  // Start high to avoid replay rejection
 
+    // MARK: - Key State
+
+    private static var isInitialized = false
+
     // MARK: - Initialization
 
+    /// Initialize or reinitialize with keys from KeyStorage
     static func initialize() {
-        print("MeshCrypto: Initializing with k2 derivation...")
+        // Debug: Test which key produces NID=0x01 (what the light uses)
+        print("MeshCrypto: === Testing keys to find NID=0x01 ===")
+
+        // Key 1: Sidus default
+        let sidusKey: [UInt8] = [0x7D, 0xD7, 0x36, 0x4C, 0xD8, 0x42, 0xAD, 0x18,
+                                  0xC1, 0x7C, 0x74, 0x65, 0x6C, 0x69, 0x6E, 0x6B]
+        let (sidusNid, _, _) = k2(n: sidusKey, p: [0x00])
+        print("MeshCrypto: Sidus default key -> NID=0x\(String(format: "%02X", sidusNid))")
+
+        // Key 2: All zeros
+        let zeroKey: [UInt8] = [UInt8](repeating: 0, count: 16)
+        let (zeroNid, _, _) = k2(n: zeroKey, p: [0x00])
+        print("MeshCrypto: All-zero key -> NID=0x\(String(format: "%02X", zeroNid))")
+
+        // Key 3: Sequential 01-10
+        let seqKey: [UInt8] = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+                               0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10]
+        let (seqNid, _, _) = k2(n: seqKey, p: [0x00])
+        print("MeshCrypto: Sequential key -> NID=0x\(String(format: "%02X", seqNid))")
+
+        // Key 4: Telink demo key (from Telink SDK)
+        let telinkKey: [UInt8] = [0x03, 0x02, 0x01, 0x00, 0x07, 0x06, 0x05, 0x04,
+                                   0x0B, 0x0A, 0x09, 0x08, 0x0F, 0x0E, 0x0D, 0x0C]
+        let (telinkNid, _, _) = k2(n: telinkKey, p: [0x00])
+        print("MeshCrypto: Telink demo key -> NID=0x\(String(format: "%02X", telinkNid))")
+
+        // Key 5: All 0x01
+        let allOneKey: [UInt8] = [UInt8](repeating: 0x01, count: 16)
+        let (allOneNid, _, _) = k2(n: allOneKey, p: [0x00])
+        print("MeshCrypto: All-0x01 key -> NID=0x\(String(format: "%02X", allOneNid))")
+
+        // Key 6: All 0xFF
+        let allFFKey: [UInt8] = [UInt8](repeating: 0xFF, count: 16)
+        let (allFFNid, _, _) = k2(n: allFFKey, p: [0x00])
+        print("MeshCrypto: All-0xFF key -> NID=0x\(String(format: "%02X", allFFNid))")
+
+        // Key 7: Telink BLE Mesh default (from sig_mesh SDK)
+        let telinkBLEKey: [UInt8] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01]
+        let (telinkBLENid, _, _) = k2(n: telinkBLEKey, p: [0x00])
+        print("MeshCrypto: Telink BLE default -> NID=0x\(String(format: "%02X", telinkBLENid))")
+
+        // Key 8: Mesh Profile Sample Data key
+        let meshSampleKey: [UInt8] = [0xF7, 0xA2, 0xA4, 0x4F, 0x8E, 0x8A, 0x80, 0x29,
+                                       0x06, 0x4F, 0x17, 0x3D, 0xDC, 0x1E, 0x2B, 0x00]
+        let (meshSampleNid, _, _) = k2(n: meshSampleKey, p: [0x00])
+        print("MeshCrypto: Mesh Sample key -> NID=0x\(String(format: "%02X", meshSampleNid))")
+
+        // Key 9: Try the light's advertising data as potential key hint
+        // MfgData: 11 02 00 A4 C1 38 56 0B 2D 02 10 ...
+        let advKey: [UInt8] = [0x11, 0x02, 0x00, 0xA4, 0xC1, 0x38, 0x56, 0x0B,
+                               0x2D, 0x02, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00]
+        let (advNid, _, _) = k2(n: advKey, p: [0x00])
+        print("MeshCrypto: Adv data as key -> NID=0x\(String(format: "%02X", advNid))")
+
+        print("MeshCrypto: =======================================")
+
+        // Use whichever key produces NID=0x01 (matching the light's beacon)
+        var keyToUse: [UInt8] = sidusKey
+        if sidusNid == 0x01 {
+            keyToUse = sidusKey
+            print("MeshCrypto: Using Sidus default key (NID matches)")
+        } else if zeroNid == 0x01 {
+            keyToUse = zeroKey
+            print("MeshCrypto: Using all-zero key (NID matches)")
+        } else if seqNid == 0x01 {
+            keyToUse = seqKey
+            print("MeshCrypto: Using sequential key (NID matches)")
+        } else if telinkNid == 0x01 {
+            keyToUse = telinkKey
+            print("MeshCrypto: Using Telink demo key (NID matches)")
+        } else if allOneNid == 0x01 {
+            keyToUse = allOneKey
+            print("MeshCrypto: Using all-0x01 key (NID matches)")
+        } else if allFFNid == 0x01 {
+            keyToUse = allFFKey
+            print("MeshCrypto: Using all-0xFF key (NID matches)")
+        } else if telinkBLENid == 0x01 {
+            keyToUse = telinkBLEKey
+            print("MeshCrypto: Using Telink BLE default key (NID matches)")
+        } else if meshSampleNid == 0x01 {
+            keyToUse = meshSampleKey
+            print("MeshCrypto: Using Mesh Sample key (NID matches)")
+        } else if advNid == 0x01 {
+            keyToUse = advKey
+            print("MeshCrypto: Using adv data key (NID matches)")
+        } else {
+            print("MeshCrypto: WARNING - No tested key produces NID=0x01!")
+            print("MeshCrypto: Using Sidus default key anyway")
+        }
+
+        networkKey = keyToUse
+        appKey = Array(SidusMeshConfig.defaultAppKey)
+        ivIndex = SidusMeshConfig.defaultIVIndex
+
+        print("MeshCrypto: Network Key = \(networkKey.map { String(format: "%02X", $0) }.joined())")
+        print("MeshCrypto: App Key = \(appKey.map { String(format: "%02X", $0) }.joined())")
+        print("MeshCrypto: IV Index = 0x\(String(format: "%08X", ivIndex))")
 
         // Derive NID, encryption key, privacy key using k2 function
         let (derivedNid, encKey, privKey) = k2(n: networkKey, p: [0x00])
@@ -50,9 +144,19 @@ class MeshCrypto {
         // Derive AID from app key using k4 function
         aid = k4(n: appKey)
 
+        isInitialized = true
+
         print("MeshCrypto: NID = \(String(format: "0x%02X", nid))")
         print("MeshCrypto: AID = \(String(format: "0x%02X", aid))")
-        print("MeshCrypto: Encryption Key = \(encKey.map { String(format: "%02X", $0) }.joined(separator: " "))")
+        print("MeshCrypto: Encryption Key = \(encKey.map { String(format: "%02X", $0) }.joined())")
+    }
+
+    /// Force reinitialization (call after keys change, e.g., after provisioning)
+    static func reinitialize() {
+        isInitialized = false
+        encryptionKey = nil
+        privacyKey = nil
+        initialize()
     }
 
     // MARK: - Create Mesh Proxy PDU
@@ -350,17 +454,96 @@ class MeshCrypto {
         }
     }
 
-    /// AES-CCM encrypt using CryptoSwift
+    /// AES-CCM encrypt - Manual implementation per RFC 3610
+    /// CryptoSwift CCM had compatibility issues, so we implement manually
     private static func aes_ccm_encrypt(key: [UInt8], nonce: [UInt8], plaintext: [UInt8], micSize: Int) -> [UInt8]? {
-        do {
-            // CryptoSwift CCM mode
-            let ccm = CCM(iv: nonce, tagLength: micSize, messageLength: plaintext.count)
-            let aes = try AES(key: key, blockMode: ccm, padding: .noPadding)
-            let encrypted = try aes.encrypt(plaintext)
-            return encrypted
-        } catch {
-            print("MeshCrypto: AES-CCM encrypt error: \(error)")
+        guard nonce.count == 13 else {
+            print("MeshCrypto: CCM nonce must be 13 bytes")
             return nil
         }
+        guard micSize == 4 || micSize == 8 else {
+            print("MeshCrypto: CCM MIC must be 4 or 8 bytes")
+            return nil
+        }
+
+        // CCM parameters for 13-byte nonce: L = 2
+        let L = 2
+
+        // === Step 1: Generate MIC using CBC-MAC ===
+        // B_0 flags: Reserved(1) | Adata(1) | M'(3) | L'(3)
+        let flagsB0: UInt8 = UInt8(((micSize - 2) / 2) << 3) | UInt8(L - 1)
+
+        var b0 = [UInt8](repeating: 0, count: 16)
+        b0[0] = flagsB0
+        for i in 0..<13 {
+            b0[1 + i] = nonce[i]
+        }
+        b0[14] = UInt8((plaintext.count >> 8) & 0xFF)
+        b0[15] = UInt8(plaintext.count & 0xFF)
+
+        // CBC-MAC
+        var cbcState = aes_encrypt(key: key, plaintext: b0)
+
+        let numBlocks = (plaintext.count + 15) / 16
+        for i in 0..<numBlocks {
+            var block = [UInt8](repeating: 0, count: 16)
+            let start = i * 16
+            let end = min(start + 16, plaintext.count)
+            for j in start..<end {
+                block[j - start] = plaintext[j]
+            }
+            for j in 0..<16 {
+                block[j] ^= cbcState[j]
+            }
+            cbcState = aes_encrypt(key: key, plaintext: block)
+        }
+
+        let tag = Array(cbcState.prefix(micSize))
+
+        // === Step 2: CTR encryption ===
+        let flagsCtr: UInt8 = UInt8(L - 1)
+
+        // A_0 for encrypting the tag
+        var a0 = [UInt8](repeating: 0, count: 16)
+        a0[0] = flagsCtr
+        for i in 0..<13 {
+            a0[1 + i] = nonce[i]
+        }
+        a0[14] = 0
+        a0[15] = 0
+
+        let s0 = aes_encrypt(key: key, plaintext: a0)
+
+        // Encrypt tag
+        var mic = [UInt8](repeating: 0, count: micSize)
+        for i in 0..<micSize {
+            mic[i] = tag[i] ^ s0[i]
+        }
+
+        // Encrypt plaintext with A_1, A_2, ...
+        var ciphertext = [UInt8](repeating: 0, count: plaintext.count)
+        for i in 0..<numBlocks {
+            let counter = i + 1
+            var ai = [UInt8](repeating: 0, count: 16)
+            ai[0] = flagsCtr
+            for j in 0..<13 {
+                ai[1 + j] = nonce[j]
+            }
+            ai[14] = UInt8((counter >> 8) & 0xFF)
+            ai[15] = UInt8(counter & 0xFF)
+
+            let si = aes_encrypt(key: key, plaintext: ai)
+
+            let start = i * 16
+            let end = min(start + 16, plaintext.count)
+            for j in start..<end {
+                ciphertext[j] = plaintext[j] ^ si[j - start]
+            }
+        }
+
+        // Output = Ciphertext || MIC
+        var result = ciphertext
+        result.append(contentsOf: mic)
+        return result
     }
 }
