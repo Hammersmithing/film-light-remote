@@ -14,18 +14,24 @@ struct LightControlView: View {
 
                 // Mode picker
                 ModePicker(selectedMode: $lightState.mode)
+                    .allowsHitTesting(lightState.isOn)
+                    .opacity(lightState.isOn ? 1.0 : 0.4)
 
                 // Mode-specific controls
-                switch lightState.mode {
-                case .cct:
-                    CCTControls(lightState: lightState, cctRange: cctRange)
-                case .hsi:
-                    HSIControls(lightState: lightState)
-                case .rgbw:
-                    RGBWControls(lightState: lightState)
-                case .effects:
-                    EffectsControls(lightState: lightState)
+                Group {
+                    switch lightState.mode {
+                    case .cct:
+                        CCTControls(lightState: lightState, cctRange: cctRange)
+                    case .hsi:
+                        HSIControls(lightState: lightState)
+                    case .rgbw:
+                        RGBWControls(lightState: lightState)
+                    case .effects:
+                        EffectsControls(lightState: lightState)
+                    }
                 }
+                .allowsHitTesting(lightState.isOn)
+                .opacity(lightState.isOn ? 1.0 : 0.4)
 
                 // Presets
                 PresetsSection(lightState: lightState)
@@ -177,6 +183,8 @@ struct PowerIntensitySection: View {
                         }
                     }
                 }
+                .allowsHitTesting(lightState.isOn)
+                .opacity(lightState.isOn ? 1.0 : 0.4)
             }
         }
         .padding()
