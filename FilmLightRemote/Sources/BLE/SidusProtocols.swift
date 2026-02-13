@@ -34,7 +34,7 @@ struct CCTProtocol: SidusProtocol {
 
     init(intensity: Int = 500, cct: Int = 440, gm: Int = 100, gmFlag: Int = 0, sleepMode: Int = 1, autoPatchFlag: Int = 0) {
         self.intensity = max(0, min(1000, intensity))
-        self.cct = max(320, min(560, cct))
+        self.cct = max(180, min(2000, cct))
         self.gm = max(0, min(200, gm))
         self.gmFlag = gmFlag
         self.sleepMode = sleepMode

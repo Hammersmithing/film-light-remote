@@ -3,6 +3,7 @@ import SwiftUI
 struct LightControlView: View {
     @EnvironmentObject var bleManager: BLEManager
     @ObservedObject var lightState: LightState
+    var cctRange: ClosedRange<Double> = 2700...6500
 
     var body: some View {
         ScrollView {
@@ -16,7 +17,7 @@ struct LightControlView: View {
                 // Mode-specific controls
                 switch lightState.mode {
                 case .cct:
-                    CCTControls(lightState: lightState)
+                    CCTControls(lightState: lightState, cctRange: cctRange)
                 case .hsi:
                     HSIControls(lightState: lightState)
                 case .rgbw:
@@ -137,6 +138,7 @@ struct ModePicker: View {
 struct CCTControls: View {
     @EnvironmentObject var bleManager: BLEManager
     @ObservedObject var lightState: LightState
+    var cctRange: ClosedRange<Double> = 2700...6500
     private let throttle = ThrottledSender()
 
     var body: some View {
@@ -177,7 +179,7 @@ struct CCTControls: View {
                     .frame(height: 8)
                     .cornerRadius(4)
 
-                    Slider(value: $lightState.cctKelvin, in: 2700...6500, step: 100)
+                    Slider(value: $lightState.cctKelvin, in: cctRange, step: 100)
                         .tint(.clear)
                         .onChange(of: lightState.cctKelvin) { _ in
                             throttle.send { [bleManager, lightState] in
@@ -189,7 +191,7 @@ struct CCTControls: View {
 
             // Quick presets
             HStack {
-                ForEach([2700, 3200, 4300, 5600, 6500], id: \.self) { kelvin in
+                ForEach(cctPresets, id: \.self) { kelvin in
                     Button {
                         lightState.cctKelvin = Double(kelvin)
                         bleManager.setCCT(kelvin)
@@ -216,6 +218,11 @@ struct CCTControls: View {
         .padding()
         .background(Color(.systemGray6))
         .cornerRadius(12)
+    }
+
+    private var cctPresets: [Int] {
+        let all = [1800, 2700, 3200, 4300, 5600, 6500, 10000, 20000]
+        return all.filter { Double($0) >= cctRange.lowerBound && Double($0) <= cctRange.upperBound }
     }
 }
 

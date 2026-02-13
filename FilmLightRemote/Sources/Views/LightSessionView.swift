@@ -14,7 +14,7 @@ struct LightSessionView: View {
             Group {
                 switch bleManager.connectionState {
                 case .ready, .connected:
-                    LightControlView(lightState: lightState)
+                    LightControlView(lightState: lightState, cctRange: Self.cctRange(for: savedLight.name))
                 case .failed(let msg):
                     failedView(message: msg)
                 default:
@@ -98,5 +98,14 @@ struct LightSessionView: View {
 
             Spacer()
         }
+    }
+
+    // MARK: - CCT Range Lookup
+
+    static func cctRange(for name: String) -> ClosedRange<Double> {
+        if name.localizedCaseInsensitiveContains("660C") {
+            return 1800...20000
+        }
+        return 2700...6500
     }
 }
