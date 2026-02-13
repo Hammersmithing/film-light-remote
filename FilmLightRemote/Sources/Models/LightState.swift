@@ -5,8 +5,6 @@ import SwiftUI
 enum LightMode: String, CaseIterable, Identifiable {
     case cct = "CCT"
     case hsi = "HSI"
-    case rgbw = "RGBW"
-    case effects = "Effects"
 
     var id: String { rawValue }
 
@@ -14,8 +12,6 @@ enum LightMode: String, CaseIterable, Identifiable {
         switch self {
         case .cct: return "thermometer"
         case .hsi: return "paintpalette"
-        case .rgbw: return "slider.horizontal.3"
-        case .effects: return "wand.and.stars"
         }
     }
 }
@@ -227,14 +223,6 @@ class LightState: ObservableObject {
         case .hsi:
             hue = preset.hue ?? 0
             saturation = preset.saturation ?? 100
-        case .rgbw:
-            red = preset.red ?? 255
-            green = preset.green ?? 255
-            blue = preset.blue ?? 255
-            white = preset.white ?? 0
-        case .effects:
-            selectedEffect = preset.effect ?? .none
-            effectSpeed = preset.effectSpeed ?? 50
         }
     }
 }
