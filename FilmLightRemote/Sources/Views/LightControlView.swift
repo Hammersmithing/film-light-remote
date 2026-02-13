@@ -32,6 +32,9 @@ struct LightControlView: View {
             }
             .padding()
         }
+        .onReceive(bleManager.$lastLightStatus.compactMap { $0 }) { status in
+            lightState.applyStatus(status)
+        }
     }
 }
 
@@ -326,11 +329,7 @@ struct HSIControls: View {
                     Slider(value: $lightState.hue, in: 0...360, step: 1)
                         .tint(.clear)
                         .onChange(of: lightState.hue) { _ in
-                            throttle.send { [bleManager, lightState] in
-                                bleManager.setHSI(hue: Int(lightState.hue),
-                                                saturation: Int(lightState.saturation),
-                                                intensity: Int(lightState.hsiIntensity))
-                            }
+                            sendHSI()
                         }
                 }
             }
@@ -349,17 +348,21 @@ struct HSIControls: View {
 
                 Slider(value: $lightState.saturation, in: 0...100, step: 1)
                     .onChange(of: lightState.saturation) { _ in
-                        throttle.send { [bleManager, lightState] in
-                            bleManager.setHSI(hue: Int(lightState.hue),
-                                            saturation: Int(lightState.saturation),
-                                            intensity: Int(lightState.hsiIntensity))
-                        }
+                        sendHSI()
                     }
             }
         }
         .padding()
         .background(Color(.systemGray6))
         .cornerRadius(12)
+    }
+
+    private func sendHSI() {
+        throttle.send { [bleManager, lightState] in
+            bleManager.setHSI(hue: Int(lightState.hue),
+                            saturation: Int(lightState.saturation),
+                            intensity: Int(lightState.hsiIntensity))
+        }
     }
 }
 

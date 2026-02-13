@@ -31,6 +31,9 @@ class MeshConfigManager: ObservableObject {
     // Config Model App Status: opcode 0x803E
     private static let opcodeModelAppStatus: UInt16 = 0x803E
 
+    // Config Model Publication Set: opcode 0x03
+    private static let opcodeModelPubSet: [UInt8] = [0x03]
+
     // Standard SIG model IDs for Aputure lights
     private static let lightModels: [(id: UInt16, name: String)] = [
         (0x1000, "Generic OnOff Server"),
@@ -39,8 +42,9 @@ class MeshConfigManager: ObservableObject {
         (0x1307, "Light HSL Server"),
     ]
 
-    // Vendor model for Sidus/Telink (company ID 0x0211)
-    private static let vendorModelID: UInt32 = 0x02110001  // Telink vendor model
+    // Vendor model for Sidus/Telink: Company ID 0x0211, Model ID 0x0000
+    // Wire format (LE): 11 02 00 00
+    private static let vendorModelID: UInt32 = 0x00000211
 
     // MARK: - State
 
@@ -149,8 +153,8 @@ class MeshConfigManager: ObservableObject {
             // Bind vendor model
             sendModelAppBind(modelID: Self.vendorModelID, isSIG: false, name: "Sidus Vendor Model")
         } else {
-            // All models bound
-            configComplete()
+            // All models bound — now configure vendor model publication
+            sendModelPublicationSet()
         }
     }
 
@@ -199,6 +203,77 @@ class MeshConfigManager: ObservableObject {
         responseTimer?.invalidate()
         responseTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in
             self?.sendNextModelBind()
+        }
+    }
+
+    // MARK: - Model Publication Set
+
+    /// Configure the vendor model to publish status to our provisioner address (0x0001).
+    /// Without this, the light has no destination for status messages and won't report state changes.
+    private func sendModelPublicationSet() {
+        log("Setting vendor model publication address to 0x0001...")
+
+        // Config Model Publication Set payload:
+        //   Opcode: 0x03
+        //   ElementAddress (2 bytes LE)
+        //   PublishAddress (2 bytes LE) — our address 0x0001
+        //   AppKeyIndex (12 bits) + CredentialFlag (1 bit) = 2 bytes
+        //   PublishTTL (1 byte)
+        //   PublishPeriod (1 byte) — Step Resolution | NumberOfSteps
+        //   PublishRetransmit (1 byte) — Count(3) | IntervalSteps(5)
+        //   ModelIdentifier (4 bytes for vendor model)
+        var payload: [UInt8] = Self.opcodeModelPubSet
+
+        // Element address (LE)
+        payload.append(UInt8(unicastAddress & 0xFF))
+        payload.append(UInt8((unicastAddress >> 8) & 0xFF))
+
+        // Publish address = 0x0001 (our provisioner address)
+        let publishAddress: UInt16 = 0x0001
+        payload.append(UInt8(publishAddress & 0xFF))
+        payload.append(UInt8((publishAddress >> 8) & 0xFF))
+
+        // AppKeyIndex (12 bits) + CredentialFlag (1 bit), packed into 2 bytes LE
+        let appKeyAndCred = UInt16(appKeyIndex & 0xFFF)  // CredentialFlag = 0
+        payload.append(UInt8(appKeyAndCred & 0xFF))
+        payload.append(UInt8((appKeyAndCred >> 8) & 0xFF))
+
+        // Publish TTL
+        payload.append(7)
+
+        // Publish Period: Resolution=1 (1 second), Steps=5 → publish every 5 seconds
+        // Bits 6-7 = Step Resolution (1 = 1s), Bits 0-5 = Number of Steps (5)
+        let publishPeriod: UInt8 = (1 << 6) | 5  // 0x45
+        payload.append(publishPeriod)
+
+        // Retransmit: Count=0, IntervalSteps=0 (no retransmit)
+        payload.append(0x00)
+
+        // Vendor Model ID (4 bytes LE): company_id(2) + model_id(2)
+        let modelID = Self.vendorModelID
+        payload.append(UInt8(modelID & 0xFF))
+        payload.append(UInt8((modelID >> 8) & 0xFF))
+        payload.append(UInt8((modelID >> 16) & 0xFF))
+        payload.append(UInt8((modelID >> 24) & 0xFF))
+
+        log("Publication Set payload (\(payload.count) bytes): \(payload.map { String(format: "%02X", $0) }.joined(separator: " "))")
+
+        guard let pdus = MeshCrypto.createDeviceKeyPDU(
+            accessPayload: payload,
+            deviceKey: deviceKey,
+            dst: unicastAddress
+        ) else {
+            fail("Failed to create Model Publication Set PDU")
+            return
+        }
+
+        sendPDUs(pdus)
+
+        // Wait for response then complete
+        responseTimer?.invalidate()
+        responseTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { [weak self] _ in
+            self?.log("Publication Set sent — config complete")
+            self?.configComplete()
         }
     }
 

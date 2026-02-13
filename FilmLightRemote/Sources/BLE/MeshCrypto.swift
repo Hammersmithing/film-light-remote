@@ -1,9 +1,24 @@
 import Foundation
 import CryptoSwift
+import os.log
+
+private let meshLog = OSLog(subsystem: "com.aldenhammersmith.FilmLightRemote", category: "MeshCrypto")
 
 /// Bluetooth Mesh Cryptography implementation for Sidus/Aputure lights
 /// Uses keys from KeyStorage (which may be provisioned keys or default Sidus keys)
 class MeshCrypto {
+
+    // MARK: - Log Callback
+
+    /// Set this to route decrypt debug logs to BLEManager's debug log
+    static var logCallback: ((String) -> Void)?
+
+    private static func dlog(_ msg: String) {
+        let full = "MeshCrypto: \(msg)"
+        print(full)
+        os_log("%{public}@", log: meshLog, type: .debug, full)
+        logCallback?(full)
+    }
 
     // MARK: - Keys (loaded from KeyStorage)
 
@@ -821,5 +836,255 @@ class MeshCrypto {
         var result = ciphertext
         result.append(contentsOf: mic)
         return result
+    }
+
+    /// AES-CCM decrypt - Reverse of aes_ccm_encrypt per RFC 3610
+    /// Returns plaintext if MIC verifies, nil if authentication fails
+    private static func aes_ccm_decrypt(key: [UInt8], nonce: [UInt8], ciphertext: [UInt8], micSize: Int) -> [UInt8]? {
+        guard nonce.count == 13 else { return nil }
+        guard micSize == 4 || micSize == 8 else { return nil }
+        guard ciphertext.count >= micSize else { return nil }
+
+        let L = 2
+        let flagsCtr: UInt8 = UInt8(L - 1)
+
+        let encData = Array(ciphertext.prefix(ciphertext.count - micSize))
+        let receivedMIC = Array(ciphertext.suffix(micSize))
+
+        // A_0 for decrypting the tag
+        var a0 = [UInt8](repeating: 0, count: 16)
+        a0[0] = flagsCtr
+        for i in 0..<13 { a0[1 + i] = nonce[i] }
+
+        let s0 = aes_encrypt(key: key, plaintext: a0)
+
+        // Decrypt MIC tag
+        var tag = [UInt8](repeating: 0, count: micSize)
+        for i in 0..<micSize { tag[i] = receivedMIC[i] ^ s0[i] }
+
+        // CTR-decrypt the data with A_1, A_2, ...
+        let numBlocks = (encData.count + 15) / 16
+        var plaintext = [UInt8](repeating: 0, count: encData.count)
+        for i in 0..<numBlocks {
+            let counter = i + 1
+            var ai = [UInt8](repeating: 0, count: 16)
+            ai[0] = flagsCtr
+            for j in 0..<13 { ai[1 + j] = nonce[j] }
+            ai[14] = UInt8((counter >> 8) & 0xFF)
+            ai[15] = UInt8(counter & 0xFF)
+
+            let si = aes_encrypt(key: key, plaintext: ai)
+            let start = i * 16
+            let end = min(start + 16, encData.count)
+            for j in start..<end {
+                plaintext[j] = encData[j] ^ si[j - start]
+            }
+        }
+
+        // CBC-MAC verify
+        let flagsB0: UInt8 = UInt8(((micSize - 2) / 2) << 3) | UInt8(L - 1)
+        var b0 = [UInt8](repeating: 0, count: 16)
+        b0[0] = flagsB0
+        for i in 0..<13 { b0[1 + i] = nonce[i] }
+        b0[14] = UInt8((plaintext.count >> 8) & 0xFF)
+        b0[15] = UInt8(plaintext.count & 0xFF)
+
+        var cbcState = aes_encrypt(key: key, plaintext: b0)
+        let macBlocks = (plaintext.count + 15) / 16
+        for i in 0..<macBlocks {
+            var block = [UInt8](repeating: 0, count: 16)
+            let start = i * 16
+            let end = min(start + 16, plaintext.count)
+            for j in start..<end { block[j - start] = plaintext[j] }
+            for j in 0..<16 { block[j] ^= cbcState[j] }
+            cbcState = aes_encrypt(key: key, plaintext: block)
+        }
+
+        // Verify tag
+        for i in 0..<micSize {
+            if cbcState[i] != tag[i] {
+                return nil
+            }
+        }
+
+        return plaintext
+    }
+
+    // MARK: - De-obfuscation
+
+    /// Reverse of obfuscate() — recovers CTL/TTL, SEQ, SRC from obfuscated header
+    private static func deobfuscate(obfuscatedHeader: [UInt8], encryptedPayload: [UInt8], privacyKey: [UInt8], ivIndex: UInt32) -> (ctlTtl: UInt8, seq: UInt32, src: UInt16) {
+        let privacyRandom = Array(encryptedPayload.prefix(7))
+
+        var pecbInput: [UInt8] = [0x00, 0x00, 0x00, 0x00, 0x00]
+        pecbInput.append(UInt8((ivIndex >> 24) & 0xFF))
+        pecbInput.append(UInt8((ivIndex >> 16) & 0xFF))
+        pecbInput.append(UInt8((ivIndex >> 8) & 0xFF))
+        pecbInput.append(UInt8(ivIndex & 0xFF))
+        pecbInput.append(contentsOf: Array(privacyRandom.prefix(7)))
+
+        let pecb = aes_encrypt(key: privacyKey, plaintext: pecbInput)
+
+        // XOR is self-inverse
+        var header = [UInt8](repeating: 0, count: 6)
+        for i in 0..<6 {
+            header[i] = obfuscatedHeader[i] ^ pecb[i]
+        }
+
+        let ctlTtl = header[0]
+        let seq = (UInt32(header[1]) << 16) | (UInt32(header[2]) << 8) | UInt32(header[3])
+        let src = (UInt16(header[4]) << 8) | UInt16(header[5])
+
+        return (ctlTtl, seq, src)
+    }
+
+    // MARK: - Incoming PDU Decryption
+
+    /// Parsed result from an incoming mesh message
+    struct ParsedMeshMessage {
+        var src: UInt16
+        var dst: UInt16
+        var accessPayload: [UInt8]  // opcode + parameters
+    }
+
+    /// Decrypt an incoming Proxy PDU received on 2ADE
+    /// Returns nil if decryption fails (wrong keys, corrupted, etc.)
+    static func decryptIncomingProxyPDU(_ data: Data) -> ParsedMeshMessage? {
+        if encryptionKey == nil { initialize() }
+        guard let encKey = encryptionKey, let privKey = privacyKey else {
+            dlog("[Decrypt] Keys not initialized")
+            return nil
+        }
+
+        let bytes = Array(data)
+        guard bytes.count >= 15 else {
+            dlog("[Decrypt] PDU too short (\(bytes.count) bytes)")
+            return nil
+        }
+
+        let proxyHeader = bytes[0]
+        let messageType = proxyHeader & 0x3F
+
+        dlog("[Decrypt] Proxy header=0x\(String(format: "%02X", proxyHeader)) type=\(messageType) len=\(bytes.count)")
+
+        // Accept Network PDU type (0x00) and also type 0x01 which some proxies use for forwarded network PDUs
+        guard messageType == 0x00 || messageType == 0x01 else {
+            dlog("[Decrypt] Skipping non-network PDU type \(messageType)")
+            return nil
+        }
+
+        let nidByte = bytes[1]
+        let incomingNID = nidByte & 0x7F
+
+        dlog("[Decrypt] Incoming NID=0x\(String(format: "%02X", incomingNID)) our NID=0x\(String(format: "%02X", nid))")
+
+        // Try decryption even if NID doesn't match our calculated one —
+        // use observed NID as fallback
+        if incomingNID != nid {
+            dlog("[Decrypt] NID mismatch (incoming=0x\(String(format: "%02X", incomingNID)) ours=0x\(String(format: "%02X", nid))), still attempting decrypt")
+        }
+
+        // De-obfuscate header (bytes 2-7)
+        let obfuscatedHeader = Array(bytes[2..<8])
+        let encryptedPayload = Array(bytes[8...])
+
+        let (ctlTtl, seq, src) = deobfuscate(
+            obfuscatedHeader: obfuscatedHeader,
+            encryptedPayload: encryptedPayload,
+            privacyKey: privKey,
+            ivIndex: ivIndex
+        )
+
+        let ctl = (ctlTtl >> 7) & 0x01
+        let ttl = ctlTtl & 0x7F
+        let netMICSize = ctl == 1 ? 8 : 4
+
+        dlog("[Decrypt] Deobfuscated: CTL=\(ctl) TTL=\(ttl) SEQ=\(seq) SRC=0x\(String(format: "%04X", src))")
+
+        // Network nonce for decryption
+        let netNonce = buildNetworkNonce(ctl: ctl, ttl: ttl, seq: seq, src: src, ivIndex: ivIndex)
+
+        // Decrypt network layer
+        guard let decryptedNet = aes_ccm_decrypt(
+            key: encKey,
+            nonce: netNonce,
+            ciphertext: encryptedPayload,
+            micSize: netMICSize
+        ) else {
+            dlog("[Decrypt] Network layer decryption FAILED (MIC mismatch)")
+            return nil
+        }
+
+        guard decryptedNet.count >= 3 else {
+            dlog("[Decrypt] Decrypted network payload too short (\(decryptedNet.count) bytes)")
+            return nil
+        }
+
+        let dst = (UInt16(decryptedNet[0]) << 8) | UInt16(decryptedNet[1])
+        let lowerTransportPDU = Array(decryptedNet[2...])
+
+        dlog("[Decrypt] Network decrypted: DST=0x\(String(format: "%04X", dst)) LTP=\(lowerTransportPDU.map { String(format: "%02X", $0) }.joined(separator: " "))")
+
+        // For control messages (CTL=1), skip app decryption
+        guard ctl == 0 else {
+            dlog("[Decrypt] Control message (CTL=1), skipping app decrypt")
+            return nil
+        }
+
+        let ltpHeader = lowerTransportPDU[0]
+        let seg = (ltpHeader >> 7) & 0x01
+        guard seg == 0 else {
+            dlog("[Decrypt] Segmented message, not yet supported")
+            return nil
+        }
+
+        let akf = (ltpHeader >> 6) & 0x01
+        let incomingAID = ltpHeader & 0x3F
+
+        dlog("[Decrypt] LTP: SEG=\(seg) AKF=\(akf) AID=0x\(String(format: "%02X", incomingAID)) (our AID=0x\(String(format: "%02X", aid)))")
+
+        let upperTransportPDU = Array(lowerTransportPDU[1...])
+
+        if akf == 1 {
+            if incomingAID != aid {
+                dlog("[Decrypt] AID mismatch, still attempting app decrypt")
+            }
+
+            let appNonce = buildApplicationNonce(seq: seq, src: src, dst: dst, ivIndex: ivIndex)
+            guard let accessMessage = aes_ccm_decrypt(
+                key: appKey,
+                nonce: appNonce,
+                ciphertext: upperTransportPDU,
+                micSize: 4
+            ) else {
+                dlog("[Decrypt] App layer decryption FAILED (MIC mismatch)")
+                return nil
+            }
+
+            dlog("[Decrypt] SUCCESS (AppKey)! Access payload: \(accessMessage.map { String(format: "%02X", $0) }.joined(separator: " "))")
+            return ParsedMeshMessage(src: src, dst: dst, accessPayload: accessMessage)
+        } else {
+            // AKF=0: Device key encrypted — look up device key by source address
+            guard let deviceKey = KeyStorage.shared.getDeviceKey(forAddress: src) else {
+                dlog("[Decrypt] Device key message (AKF=0) from 0x\(String(format: "%04X", src)) — no device key stored")
+                return nil
+            }
+
+            dlog("[Decrypt] Trying device key decrypt for SRC=0x\(String(format: "%04X", src))")
+
+            let devNonce = buildDeviceNonce(seq: seq, src: src, dst: dst, ivIndex: ivIndex)
+            guard let accessMessage = aes_ccm_decrypt(
+                key: deviceKey,
+                nonce: devNonce,
+                ciphertext: upperTransportPDU,
+                micSize: 4
+            ) else {
+                dlog("[Decrypt] Device key decryption FAILED (MIC mismatch)")
+                return nil
+            }
+
+            dlog("[Decrypt] SUCCESS (DevKey)! Access payload: \(accessMessage.map { String(format: "%02X", $0) }.joined(separator: " "))")
+            return ParsedMeshMessage(src: src, dst: dst, accessPayload: accessMessage)
+        }
     }
 }

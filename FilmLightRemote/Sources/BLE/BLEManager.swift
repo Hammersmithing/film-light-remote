@@ -72,6 +72,7 @@ class BLEManager: NSObject, ObservableObject {
     @Published var connectedLight: DiscoveredLight?
     @Published var lastReceivedData: Data?
     @Published var isBluetoothAvailable = false
+    @Published var lastLightStatus: SidusLightStatus?
 
     // Debug/Analysis mode - logs all BLE traffic
     @Published var debugMode = true
@@ -109,9 +110,19 @@ class BLEManager: NSObject, ObservableObject {
     // Scanning
     private var scanTimer: Timer?
 
+    // Periodic state polling
+    private var statePollingTimer: Timer?
+
     override init() {
         super.init()
+        // Clear old debug log file
+        if let fileURL = Self.debugLogFileURL {
+            try? FileManager.default.removeItem(at: fileURL)
+        }
         centralManager = CBCentralManager(delegate: self, queue: .main)
+        MeshCrypto.logCallback = { [weak self] msg in
+            self?.log(msg)
+        }
     }
 
     // MARK: - Public Methods
@@ -294,6 +305,7 @@ class BLEManager: NSObject, ObservableObject {
     private(set) var currentMode: String = "cct"
     private(set) var currentHue: Int = 0
     private(set) var currentSaturation: Int = 100
+    private(set) var currentHSICCT: Int = 5600
 
     /// Sync BLEManager state from a loaded LightState (call when opening a light session)
     func syncState(from lightState: LightState) {
@@ -361,17 +373,18 @@ class BLEManager: NSObject, ObservableObject {
         setHSI(hue: h, saturation: s, intensity: i)
     }
 
-    func setHSI(hue: Int, saturation: Int, intensity: Int) {
+    func setHSI(hue: Int, saturation: Int, intensity: Int, cctKelvin: Int = 5600) {
         currentMode = "hsi"
         currentHue = hue
         currentSaturation = saturation
         currentIntensity = intensity
+        currentHSICCT = cctKelvin
         guard let peripheral = connectedPeripheral else { return }
 
-        log("setHSI(h:\(hue), s:\(saturation), i:\(intensity)) target=0x\(String(format: "%04X", targetUnicastAddress))")
+        log("setHSI(h:\(hue), s:\(saturation), i:\(intensity), cct:\(cctKelvin)K) target=0x\(String(format: "%04X", targetUnicastAddress))")
 
-        // Sidus opcode 0x26 + HSIProtocol — sets hue, saturation, intensity
-        let cmd = HSIProtocol(intensityPercent: Double(intensity), hue: hue, saturationPercent: Double(saturation))
+        // Sidus opcode 0x26 + HSIProtocol — sets hue, saturation, intensity, white balance
+        let cmd = HSIProtocol(intensityPercent: Double(intensity), hue: hue, saturationPercent: Double(saturation), cctKelvin: cctKelvin)
         let payload = cmd.getSendData()
         var accessMessage: [UInt8] = [0x26]
         accessMessage.append(contentsOf: payload)
@@ -400,7 +413,7 @@ class BLEManager: NSObject, ObservableObject {
                 intensity: intensity * 10,
                 hue: currentHue,
                 sat: currentSaturation,
-                cct: 200,
+                cct: currentHSICCT / 50,
                 gm: 100,
                 gmFlag: 0,
                 sleepMode: on ? 1 : 0,
@@ -475,6 +488,58 @@ class BLEManager: NSObject, ObservableObject {
         return (Int(h), Int(s * 100), Int(i * 100))
     }
 
+    // MARK: - State Polling
+
+    /// Start polling the light for its current state every few seconds
+    func startStatePolling(interval: TimeInterval = 3.0) {
+        stopStatePolling()
+        log("Starting state polling (every \(interval)s)")
+        statePollingTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            self?.queryLightState()
+        }
+    }
+
+    /// Stop polling
+    func stopStatePolling() {
+        statePollingTimer?.invalidate()
+        statePollingTimer = nil
+    }
+
+    // MARK: - State Query
+
+    /// Query the light's current state by re-sending the current CCT/HSI state via mesh.
+    /// After model publication is configured, the light responds with its ACTUAL state
+    /// (which may differ from what we sent if physical controls were used).
+    func queryLightState() {
+        guard let peripheral = connectedPeripheral, let char = meshProxyIn else {
+            log("queryLightState: no mesh proxy connection")
+            return
+        }
+
+        // Re-send current state as a normal SET command — the light will respond
+        // with its actual state via the configured publication address
+        let payload: Data
+        if currentMode == "hsi" {
+            let cmd = HSIProtocol(intensityPercent: Double(currentIntensity), hue: currentHue, saturationPercent: Double(currentSaturation), cctKelvin: currentHSICCT)
+            payload = cmd.getSendData()
+        } else {
+            let cmd = CCTProtocol(intensityPercent: Double(currentIntensity), cctKelvin: currentCCT)
+            payload = cmd.getSendData()
+        }
+
+        var accessMessage: [UInt8] = [0x26]
+        accessMessage.append(contentsOf: payload)
+
+        log("queryLightState: re-sending current state (\(currentMode), \(currentIntensity)%) via mesh")
+
+        if let meshPDU = MeshCrypto.createStandardMeshPDU(
+            accessMessage: accessMessage,
+            dst: targetUnicastAddress
+        ) {
+            peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
+        }
+    }
+
     // MARK: - Proxy Filter Setup
 
     /// Send Set Filter Type (blacklist) to the proxy so it accepts all mesh PDUs.
@@ -524,6 +589,7 @@ class BLEManager: NSObject, ObservableObject {
     // MARK: - Private Methods
 
     private func cleanup() {
+        stopStatePolling()
         connectedPeripheral = nil
         connectedLight = nil
         controlCharacteristic = nil
@@ -536,10 +602,31 @@ class BLEManager: NSObject, ObservableObject {
         connectionState = .disconnected
     }
 
+    /// URL of the debug log file in the app's Documents directory
+    static var debugLogFileURL: URL? {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.appendingPathComponent("debug_log.txt")
+    }
+
     private func log(_ message: String) {
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let entry = "[\(timestamp)] \(message)"
         print(entry)
+
+        // Write to file for remote retrieval
+        if let fileURL = Self.debugLogFileURL {
+            let line = entry + "\n"
+            if let data = line.data(using: .utf8) {
+                if FileManager.default.fileExists(atPath: fileURL.path) {
+                    if let handle = try? FileHandle(forWritingTo: fileURL) {
+                        handle.seekToEndOfFile()
+                        handle.write(data)
+                        handle.closeFile()
+                    }
+                } else {
+                    try? data.write(to: fileURL)
+                }
+            }
+        }
 
         if debugMode {
             DispatchQueue.main.async {
@@ -900,14 +987,70 @@ extension BLEManager: CBPeripheralDelegate {
         }
 
         if let data = characteristic.value {
-            log("Received from \(characteristic.uuid): \(data.hexString)")
+            log("Received from \(characteristic.uuid) (\(data.count) bytes): \(data.hexString)")
             lastReceivedData = data
+
+            // Try parsing data from Sidus characteristics as light state
+            let uuidStr = characteristic.uuid.uuidString.uppercased()
+            if uuidStr.contains("2B12") || uuidStr == "7FCB" || uuidStr == "FF02" {
+                if data.count >= 10 {
+                    if let status = SidusStatusParser.parse(data) {
+                        log("Parsed Sidus status from \(characteristic.uuid): type=\(status.commandType) intensity=\(status.intensity)% on=\(status.isOn)")
+                        DispatchQueue.main.async {
+                            self.lastLightStatus = status
+                        }
+                    } else {
+                        log("  (Not a valid Sidus status payload)")
+                    }
+                }
+            }
 
             // Parse mesh proxy data from 2ADE to extract network parameters
             // Note: 16-bit UUIDs may expand to full 128-bit format, so check both
             let uuidString = characteristic.uuid.uuidString.uppercased()
             if uuidString.contains("2ADE") || uuidString.contains("2ADC") {
                 MeshCrypto.parseIncomingPDU(data)
+
+                // Try to decrypt incoming mesh PDU
+                if let parsed = MeshCrypto.decryptIncomingProxyPDU(data) {
+                    let payloadHex = parsed.accessPayload.map { String(format: "%02X", $0) }.joined(separator: " ")
+                    log("Decrypted mesh msg from 0x\(String(format: "%04X", parsed.src)) → 0x\(String(format: "%04X", parsed.dst)): \(payloadHex)")
+
+                    let payload = parsed.accessPayload
+
+                    // Check for Sidus vendor opcode 0x26 (1-byte) or 0xC0 0x11 0x02 0x26 (3-byte vendor + sub)
+                    var sidusPayloadStart: Int? = nil
+
+                    if payload.count >= 14 && payload[0] == 0xC0 && payload[1] == 0x11 && payload[2] == 0x02 && payload[3] == 0x26 {
+                        sidusPayloadStart = 4
+                    } else if payload.count >= 11 && payload[0] == 0x26 {
+                        sidusPayloadStart = 1
+                    }
+
+                    if let start = sidusPayloadStart, payload.count >= start + 10 {
+                        let sidusData = Data(payload[start..<(start + 10)])
+                        log("Sidus payload (10 bytes): \(sidusData.hexString)")
+                        if let status = SidusStatusParser.parse(sidusData) {
+                            log("*** LIGHT STATUS: type=\(status.commandType) intensity=\(status.intensity)% on=\(status.isOn) cct=\(status.cctKelvin ?? 0) hue=\(status.hue ?? 0) sat=\(status.saturation ?? 0) ***")
+                            DispatchQueue.main.async {
+                                self.lastLightStatus = status
+                            }
+                        } else {
+                            log("Sidus payload checksum/parse failed — may be version or other response")
+                        }
+                    } else if payload.count >= 1 {
+                        // Log opcode for any non-Sidus message
+                        let opcode: String
+                        if payload[0] >= 0xC0 && payload.count >= 3 {
+                            opcode = "vendor 0x\(payload[0...2].map { String(format: "%02X", $0) }.joined())"
+                        } else if payload[0] >= 0x80 && payload.count >= 2 {
+                            opcode = "SIG 0x\(String(format: "%02X%02X", payload[0], payload[1]))"
+                        } else {
+                            opcode = "0x\(String(format: "%02X", payload[0]))"
+                        }
+                        log("Non-Sidus mesh msg opcode=\(opcode) len=\(payload.count)")
+                    }
+                }
             }
         }
     }

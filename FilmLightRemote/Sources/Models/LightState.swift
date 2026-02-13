@@ -73,6 +73,7 @@ class LightState: ObservableObject {
     @Published var hue: Double = 0.0          // 0-360
     @Published var saturation: Double = 100.0 // 0-100
     @Published var hsiIntensity: Double = 50.0
+    @Published var hsiCCT: Double = 5600.0    // White balance in Kelvin (2000-10000)
 
     // RGBW Mode (0-255 each)
     @Published var red: Double = 255.0
@@ -131,6 +132,36 @@ class LightState: ObservableObject {
         return Color(red: r / 255.0, green: g / 255.0, blue: b / 255.0)
     }
 
+    // MARK: - Apply Hardware Status
+
+    /// Update state from a parsed Sidus status (received from the light hardware)
+    func applyStatus(_ status: SidusLightStatus) {
+        isOn = status.isOn
+
+        switch status.commandType {
+        case 2: // CCT
+            mode = .cct
+            intensity = status.intensity
+            if let kelvin = status.cctKelvin {
+                cctKelvin = Double(kelvin)
+            }
+        case 1: // HSI
+            mode = .hsi
+            intensity = status.intensity
+            hsiIntensity = status.intensity
+            if let h = status.hue {
+                hue = Double(h)
+            }
+            if let s = status.saturation {
+                saturation = Double(s)
+            }
+        case 12: // Sleep/power only
+            break
+        default:
+            break
+        }
+    }
+
     // MARK: - Persistence
 
     private static let statePrefix = "lightState."
@@ -139,7 +170,7 @@ class LightState: ObservableObject {
         let data = PersistedState(
             isOn: isOn, mode: mode.rawValue, intensity: intensity,
             cctKelvin: cctKelvin, hue: hue, saturation: saturation,
-            hsiIntensity: hsiIntensity, red: red, green: green,
+            hsiIntensity: hsiIntensity, hsiCCT: hsiCCT, red: red, green: green,
             blue: blue, white: white,
             effectId: selectedEffect.rawValue, effectSpeed: effectSpeed
         )
@@ -158,6 +189,7 @@ class LightState: ObservableObject {
         hue = state.hue
         saturation = state.saturation
         hsiIntensity = state.hsiIntensity
+        hsiCCT = state.hsiCCT ?? 5600.0
         red = state.red
         green = state.green
         blue = state.blue
@@ -174,6 +206,7 @@ class LightState: ObservableObject {
         var hue: Double
         var saturation: Double
         var hsiIntensity: Double
+        var hsiCCT: Double?
         var red: Double
         var green: Double
         var blue: Double

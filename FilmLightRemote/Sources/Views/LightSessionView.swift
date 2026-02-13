@@ -38,7 +38,17 @@ struct LightSessionView: View {
             bleManager.targetUnicastAddress = savedLight.unicastAddress
             bleManager.connectToKnownPeripheral(identifier: savedLight.peripheralIdentifier)
         }
+        .onReceive(bleManager.$connectionState) { state in
+            if state == .ready {
+                // State read-back not yet supported — don't poll
+                // (polling re-sends commands and interferes with power off)
+            }
+        }
+        .onReceive(bleManager.$lastLightStatus.compactMap { $0 }) { status in
+            lightState.applyStatus(status)
+        }
         .onDisappear {
+            bleManager.stopStatePolling()
             lightState.save(forLightId: savedLight.id)
         }
     }
