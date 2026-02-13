@@ -98,7 +98,7 @@ struct PowerIntensitySection: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
 
-                Slider(value: $lightState.intensity, in: 0...100, step: intensityStep)
+                Slider(value: $lightState.intensity, in: 0...100)
                     .tint(.orange)
                     .onChange(of: lightState.intensity) { _ in
                         throttle.send { [bleManager, lightState] in
