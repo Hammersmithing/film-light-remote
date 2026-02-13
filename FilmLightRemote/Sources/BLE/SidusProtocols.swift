@@ -43,7 +43,7 @@ struct CCTProtocol: SidusProtocol {
 
     /// Convenience initializer with percentage and Kelvin values
     init(intensityPercent: Double, cctKelvin: Int, gm: Int = 100) {
-        self.intensity = Int(intensityPercent * 10)
+        self.intensity = Int(round(intensityPercent * 10))
         self.cct = cctKelvin / 10
         self.gm = gm
         self.gmFlag = 0
@@ -148,7 +148,7 @@ struct HSIProtocol: SidusProtocol {
 
     /// Convenience initializer with percentage values
     init(intensityPercent: Double, hue: Int, saturationPercent: Double) {
-        self.intensity = Int(intensityPercent * 10)
+        self.intensity = Int(round(intensityPercent * 10))
         self.hue = hue
         self.sat = Int(saturationPercent)
         self.cct = 200  // Default CCT offset

@@ -109,7 +109,7 @@ struct PowerIntensitySection: View {
                                                 saturation: Int(lightState.saturation),
                                                 intensity: Int(lightState.intensity))
                             default:
-                                bleManager.setIntensity(Int(lightState.intensity))
+                                bleManager.setIntensity(lightState.intensity)
                             }
                         }
                     }

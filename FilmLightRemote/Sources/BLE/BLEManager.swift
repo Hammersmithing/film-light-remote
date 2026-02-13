@@ -304,15 +304,15 @@ class BLEManager: NSObject, ObservableObject {
         currentSaturation = Int(lightState.saturation)
     }
 
-    func setIntensity(_ percent: Int) {
-        currentIntensity = percent
+    func setIntensity(_ percent: Double) {
+        currentIntensity = Int(percent)
         currentMode = "cct"
         guard let peripheral = connectedPeripheral else { return }
 
         log("setIntensity(\(percent)%) target=0x\(String(format: "%04X", targetUnicastAddress))")
 
         // Sidus opcode 0x26 + CCTProtocol — controls intensity via CCT mode
-        let cctCmd = CCTProtocol(intensityPercent: Double(percent), cctKelvin: currentCCT)
+        let cctCmd = CCTProtocol(intensityPercent: percent, cctKelvin: currentCCT)
         let payload = cctCmd.getSendData()
         var accessMessage: [UInt8] = [0x26]
         accessMessage.append(contentsOf: payload)
