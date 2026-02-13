@@ -374,11 +374,19 @@ class BLEManager: NSObject, ObservableObject {
 
         log("setPower(\(on)) target=0x\(String(format: "%04X", targetUnicastAddress))")
 
-        // Sidus opcode 0x26 + SleepProtocol (commandType=12) — matches Sidus Link app
-        // sleepMode=1 → ON (awake), sleepMode=0 → OFF (sleep)
-        // Total: 1 byte opcode + 10 bytes payload = 11 bytes (fits unsegmented mesh)
-        let sleepCmd = SleepProtocol(on: on)
-        let payload = sleepCmd.getSendData()
+        // Use CCTProtocol with sleepMode to control power:
+        // sleepMode=0 → OFF (sleep), sleepMode=1 → ON with current intensity/CCT
+        // This avoids the issue of SleepProtocol waking the light at 0% brightness.
+        let intensity = on ? max(currentIntensity, 10) : 0
+        let cctCmd = CCTProtocol(
+            intensity: intensity * 10,
+            cct: currentCCT / 10,
+            gm: 100,
+            gmFlag: 0,
+            sleepMode: on ? 1 : 0,
+            autoPatchFlag: 0
+        )
+        let payload = cctCmd.getSendData()
         var accessMessage: [UInt8] = [0x26]
         accessMessage.append(contentsOf: payload)
 
@@ -388,7 +396,7 @@ class BLEManager: NSObject, ObservableObject {
                 dst: targetUnicastAddress
             ) {
                 peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
-                log("  Sent SleepProtocol(\(on ? "ON" : "OFF")) to 0x\(String(format: "%04X", targetUnicastAddress))")
+                log("  Sent CCT power \(on ? "ON" : "OFF") (intensity=\(intensity)%, cct=\(currentCCT)K) to 0x\(String(format: "%04X", targetUnicastAddress))")
             }
         }
     }
