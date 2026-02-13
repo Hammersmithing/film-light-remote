@@ -64,6 +64,69 @@ private class ThrottledSender {
     }
 }
 
+// MARK: - Intensity Slider (2D: horizontal = coarse, vertical = fine)
+
+private struct IntensitySlider: View {
+    @Binding var value: Double
+    var fineStep: Double = 0.1
+    var onChanged: () -> Void
+
+    @State private var dragStartValue: Double = 0
+    @State private var isDragging = false
+
+    var body: some View {
+        GeometryReader { geo in
+            let trackWidth = geo.size.width
+            let fraction = value / 100.0
+
+            ZStack(alignment: .leading) {
+                // Track background
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color(.systemGray4))
+                    .frame(height: 6)
+
+                // Fill
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color.orange)
+                    .frame(width: max(0, trackWidth * fraction), height: 6)
+
+                // Thumb
+                Circle()
+                    .fill(.white)
+                    .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
+                    .frame(width: 28, height: 28)
+                    .offset(x: fraction * (trackWidth - 28))
+            }
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { drag in
+                        if !isDragging {
+                            dragStartValue = value
+                            isDragging = true
+                        }
+
+                        // Horizontal: coarse — whole number steps
+                        let hPct = drag.translation.width / trackWidth * 100
+                        let coarse = round(hPct)
+
+                        // Vertical: fine — 0.1 steps, up = increase
+                        let fine = round(-drag.translation.height / 10) * fineStep
+
+                        let newValue = max(0, min(100, dragStartValue + coarse + fine))
+                        value = newValue
+                        onChanged()
+                    }
+                    .onEnded { _ in
+                        isDragging = false
+                    }
+            )
+        }
+        .frame(height: 28)
+    }
+}
+
 // MARK: - Power and Intensity Section
 struct PowerIntensitySection: View {
     @EnvironmentObject var bleManager: BLEManager
@@ -92,27 +155,25 @@ struct PowerIntensitySection: View {
                     .monospacedDigit()
             }
 
-            // Intensity slider
+            // Intensity slider — horizontal = whole numbers, vertical = 0.1 fine tune
             VStack(alignment: .leading, spacing: 4) {
                 Text("Intensity")
                     .font(.caption)
                     .foregroundColor(.secondary)
 
-                Slider(value: $lightState.intensity, in: 0...100)
-                    .tint(.orange)
-                    .onChange(of: lightState.intensity) { _ in
-                        throttle.send { [bleManager, lightState] in
-                            switch lightState.mode {
-                            case .hsi:
-                                lightState.hsiIntensity = lightState.intensity
-                                bleManager.setHSI(hue: Int(lightState.hue),
-                                                saturation: Int(lightState.saturation),
-                                                intensity: Int(lightState.intensity))
-                            default:
-                                bleManager.setIntensity(lightState.intensity)
-                            }
+                IntensitySlider(value: $lightState.intensity, fineStep: intensityStep) {
+                    throttle.send { [bleManager, lightState] in
+                        switch lightState.mode {
+                        case .hsi:
+                            lightState.hsiIntensity = lightState.intensity
+                            bleManager.setHSI(hue: Int(lightState.hue),
+                                            saturation: Int(lightState.saturation),
+                                            intensity: Int(lightState.intensity))
+                        default:
+                            bleManager.setIntensity(lightState.intensity)
                         }
                     }
+                }
             }
         }
         .padding()
