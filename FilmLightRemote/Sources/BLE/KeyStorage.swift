@@ -15,6 +15,7 @@ class KeyStorage {
     private let ivIndexKey = "mesh.ivIndex"
     private let deviceKeysKey = "mesh.deviceKeys"
     private let nextUnicastAddressKey = "mesh.nextUnicastAddress"
+    private let savedLightsKey = "mesh.savedLights"
 
     private let defaults = UserDefaults.standard
 
@@ -28,6 +29,8 @@ class KeyStorage {
         if appKey == nil {
             generateAppKey()
         }
+        // Migrate any existing provisioned devices to saved lights
+        migrateExistingDeviceKeys()
     }
 
     // MARK: - Network Key
@@ -172,6 +175,67 @@ class KeyStorage {
         print("KeyStorage: Removed device key for address 0x\(addressKey)")
     }
 
+    // MARK: - Saved Lights
+
+    /// All saved/provisioned lights persisted as JSON
+    var savedLights: [SavedLight] {
+        get {
+            guard let data = defaults.data(forKey: savedLightsKey) else { return [] }
+            return (try? JSONDecoder().decode([SavedLight].self, from: data)) ?? []
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue) {
+                defaults.set(data, forKey: savedLightsKey)
+            }
+        }
+    }
+
+    /// Add a new saved light
+    func addSavedLight(_ light: SavedLight) {
+        var lights = savedLights
+        // Replace if same unicast address already exists
+        lights.removeAll { $0.unicastAddress == light.unicastAddress }
+        lights.append(light)
+        savedLights = lights
+        print("KeyStorage: Saved light '\(light.name)' at 0x\(String(format: "%04X", light.unicastAddress))")
+    }
+
+    /// Remove a saved light and its device key
+    func removeSavedLight(_ light: SavedLight) {
+        var lights = savedLights
+        lights.removeAll { $0.id == light.id }
+        savedLights = lights
+        removeDeviceKey(forAddress: light.unicastAddress)
+        print("KeyStorage: Removed light '\(light.name)'")
+    }
+
+    /// Update an existing saved light (e.g. lastConnected timestamp)
+    func updateSavedLight(_ light: SavedLight) {
+        var lights = savedLights
+        if let idx = lights.firstIndex(where: { $0.id == light.id }) {
+            lights[idx] = light
+            savedLights = lights
+        }
+    }
+
+    /// Migrate existing provisioned device keys to SavedLight entries
+    func migrateExistingDeviceKeys() {
+        let existing = savedLights
+        let existingAddresses = Set(existing.map { $0.unicastAddress })
+
+        for address in provisionedAddresses {
+            guard !existingAddresses.contains(address) else { continue }
+            let light = SavedLight(
+                name: "Light 0x\(String(format: "%04X", address))",
+                unicastAddress: address,
+                lightType: "Aputure Light",
+                peripheralIdentifier: UUID() // placeholder — no peripheral info available
+            )
+            addSavedLight(light)
+            print("KeyStorage: Migrated device 0x\(String(format: "%04X", address)) to saved lights")
+        }
+    }
+
     // MARK: - Reset
 
     /// Reset all stored keys (for testing/debugging)
@@ -181,6 +245,7 @@ class KeyStorage {
         defaults.removeObject(forKey: ivIndexKey)
         defaults.removeObject(forKey: deviceKeysKey)
         defaults.removeObject(forKey: nextUnicastAddressKey)
+        defaults.removeObject(forKey: savedLightsKey)
         print("KeyStorage: Reset all keys")
 
         // Regenerate base keys

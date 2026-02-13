@@ -77,6 +77,9 @@ class BLEManager: NSObject, ObservableObject {
     @Published var debugMode = true
     @Published var debugLog: [String] = []
 
+    // Post-provisioning configuration manager
+    let configManager = MeshConfigManager()
+
     // Core Bluetooth
     private(set) var centralManager: CBCentralManager!
     private(set) var connectedPeripheral: CBPeripheral?
@@ -155,6 +158,64 @@ class BLEManager: NSObject, ObservableObject {
         connectionState = .connecting
         log("Connecting to \(light.name)...")
         centralManager.connect(light.peripheral, options: nil)
+    }
+
+    /// Reconnect to a previously known peripheral by its CoreBluetooth identifier.
+    /// Uses retrievePeripherals first; falls back to scanning if not cached.
+    func connectToKnownPeripheral(identifier: UUID) {
+        guard centralManager.state == .poweredOn else {
+            log("Cannot reconnect - Bluetooth not powered on")
+            connectionState = .failed("Bluetooth not available")
+            return
+        }
+
+        let peripherals = centralManager.retrievePeripherals(withIdentifiers: [identifier])
+        if let peripheral = peripherals.first {
+            log("Retrieved known peripheral \(peripheral.name ?? identifier.uuidString)")
+            connectionState = .connecting
+            peripheral.delegate = self
+            connectedPeripheral = peripheral
+            centralManager.connect(peripheral, options: nil)
+        } else {
+            // Peripheral not cached — try retrieving connected peripherals with proxy service
+            let connected = centralManager.retrieveConnectedPeripherals(withServices: [MeshUUIDs.proxyService])
+            if let match = connected.first(where: { $0.identifier == identifier }) {
+                log("Found already-connected peripheral \(match.name ?? identifier.uuidString)")
+                connectionState = .connecting
+                match.delegate = self
+                connectedPeripheral = match
+                centralManager.connect(match, options: nil)
+            } else {
+                // Fall back to scanning for proxy service
+                log("Peripheral not cached — scanning for proxy devices...")
+                pendingReconnectIdentifier = identifier
+                connectionState = .scanning
+                centralManager.scanForPeripherals(
+                    withServices: [MeshUUIDs.proxyService],
+                    options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
+                )
+                scanTimer?.invalidate()
+                scanTimer = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: false) { [weak self] _ in
+                    self?.stopScanning()
+                    if self?.connectionState == .scanning {
+                        self?.connectionState = .failed("Light not found")
+                    }
+                    self?.pendingReconnectIdentifier = nil
+                }
+            }
+        }
+    }
+
+    /// Identifier of a peripheral we're trying to reconnect to via scan fallback
+    private(set) var pendingReconnectIdentifier: UUID?
+
+    /// Update the lastConnected timestamp for a saved light
+    func updateLastConnected(for peripheralIdentifier: UUID) {
+        var lights = KeyStorage.shared.savedLights
+        if let idx = lights.firstIndex(where: { $0.peripheralIdentifier == peripheralIdentifier }) {
+            lights[idx].lastConnected = Date()
+            KeyStorage.shared.savedLights = lights
+        }
     }
 
     func disconnect() {
@@ -361,6 +422,41 @@ class BLEManager: NSObject, ObservableObject {
         return (Int(h), Int(s * 100), Int(i * 100))
     }
 
+    // MARK: - Post-Provisioning Configuration
+
+    private func runPostProvisioningConfig(proxyIn: CBCharacteristic) {
+        let storage = KeyStorage.shared
+        let addresses = storage.provisionedAddresses
+
+        guard let deviceAddress = addresses.last else {
+            log("No provisioned devices found — skipping config")
+            return
+        }
+
+        guard let deviceKey = storage.getDeviceKey(forAddress: deviceAddress) else {
+            log("No device key for address 0x\(String(format: "%04X", deviceAddress)) — skipping config")
+            return
+        }
+
+        guard let peripheral = connectedPeripheral else { return }
+
+        log("Running post-provisioning config for device 0x\(String(format: "%04X", deviceAddress))...")
+
+        configManager.configure(
+            peripheral: peripheral,
+            proxyDataIn: proxyIn,
+            deviceAddress: deviceAddress,
+            deviceKey: deviceKey
+        ) { [weak self] success in
+            if success {
+                self?.log("Config complete — light should now respond to commands!")
+                self?.connectionState = .ready
+            } else {
+                self?.log("Config failed — commands may not work")
+            }
+        }
+    }
+
     // MARK: - Private Methods
 
     private func cleanup() {
@@ -525,6 +621,12 @@ extension BLEManager: CBCentralManagerDelegate {
             discoveredLights.append(light)
             log("Found \(meshState.rawValue) light: \(displayName)")
         }
+
+        // Auto-connect if this is the peripheral we're trying to reconnect to
+        if let pendingID = pendingReconnectIdentifier, peripheral.identifier == pendingID {
+            pendingReconnectIdentifier = nil
+            connect(to: light)
+        }
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
@@ -532,6 +634,7 @@ extension BLEManager: CBCentralManagerDelegate {
         connectedPeripheral = peripheral
         peripheral.delegate = self
         connectionState = .discoveringServices
+        updateLastConnected(for: peripheral.identifier)
 
         // Discover all services initially for analysis
         peripheral.discoverServices(nil)
@@ -668,22 +771,21 @@ extension BLEManager: CBPeripheralDelegate {
                 connectedLight = light
             }
 
-            // Don't send init sequence - it was causing disconnects
-            log("Connected and ready - waiting for user commands")
-            // sendInitSequence()
+            log("Connected and ready")
 
             // Log characteristics summary after a short delay to let all services complete
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 guard let self = self else { return }
                 self.log("=== Control Characteristics Found ===")
-                self.log("  sidusControl (2B12): \(self.sidusControl != nil ? "YES" : "NO")")
                 self.log("  meshProxyIn (2ADD): \(self.meshProxyIn != nil ? "YES" : "NO")")
-                self.log("  controlCharacteristic (FF02): \(self.controlCharacteristic != nil ? "YES" : "NO")")
-                self.log("  char7FCB: \(self.char7FCB != nil ? "YES" : "NO")")
+                self.log("  sidusControl (2B12): \(self.sidusControl != nil ? "YES" : "NO")")
                 self.log("  provisioningDataIn (2ADB): \(self.provisioningDataIn != nil ? "YES" : "NO")")
-                self.log("  provisioningDataOut (2ADC): \(self.provisioningDataOut != nil ? "YES" : "NO")")
-                self.log("  Provisioning Available: \(self.isProvisioningAvailable ? "YES" : "NO")")
                 self.log("=====================================")
+
+                // Auto-configure if we have proxy and a provisioned device key
+                if let proxyIn = self.meshProxyIn {
+                    self.runPostProvisioningConfig(proxyIn: proxyIn)
+                }
             }
         }
     }

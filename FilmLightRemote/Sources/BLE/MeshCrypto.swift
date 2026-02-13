@@ -35,100 +35,12 @@ class MeshCrypto {
 
     /// Initialize or reinitialize with keys from KeyStorage
     static func initialize() {
-        // Debug: Test which key produces NID=0x01 (what the light uses)
-        print("MeshCrypto: === Testing keys to find NID=0x01 ===")
+        let storage = KeyStorage.shared
 
-        // Key 1: Sidus default
-        let sidusKey: [UInt8] = [0x7D, 0xD7, 0x36, 0x4C, 0xD8, 0x42, 0xAD, 0x18,
-                                  0xC1, 0x7C, 0x74, 0x65, 0x6C, 0x69, 0x6E, 0x6B]
-        let (sidusNid, _, _) = k2(n: sidusKey, p: [0x00])
-        print("MeshCrypto: Sidus default key -> NID=0x\(String(format: "%02X", sidusNid))")
-
-        // Key 2: All zeros
-        let zeroKey: [UInt8] = [UInt8](repeating: 0, count: 16)
-        let (zeroNid, _, _) = k2(n: zeroKey, p: [0x00])
-        print("MeshCrypto: All-zero key -> NID=0x\(String(format: "%02X", zeroNid))")
-
-        // Key 3: Sequential 01-10
-        let seqKey: [UInt8] = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-                               0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10]
-        let (seqNid, _, _) = k2(n: seqKey, p: [0x00])
-        print("MeshCrypto: Sequential key -> NID=0x\(String(format: "%02X", seqNid))")
-
-        // Key 4: Telink demo key (from Telink SDK)
-        let telinkKey: [UInt8] = [0x03, 0x02, 0x01, 0x00, 0x07, 0x06, 0x05, 0x04,
-                                   0x0B, 0x0A, 0x09, 0x08, 0x0F, 0x0E, 0x0D, 0x0C]
-        let (telinkNid, _, _) = k2(n: telinkKey, p: [0x00])
-        print("MeshCrypto: Telink demo key -> NID=0x\(String(format: "%02X", telinkNid))")
-
-        // Key 5: All 0x01
-        let allOneKey: [UInt8] = [UInt8](repeating: 0x01, count: 16)
-        let (allOneNid, _, _) = k2(n: allOneKey, p: [0x00])
-        print("MeshCrypto: All-0x01 key -> NID=0x\(String(format: "%02X", allOneNid))")
-
-        // Key 6: All 0xFF
-        let allFFKey: [UInt8] = [UInt8](repeating: 0xFF, count: 16)
-        let (allFFNid, _, _) = k2(n: allFFKey, p: [0x00])
-        print("MeshCrypto: All-0xFF key -> NID=0x\(String(format: "%02X", allFFNid))")
-
-        // Key 7: Telink BLE Mesh default (from sig_mesh SDK)
-        let telinkBLEKey: [UInt8] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                                      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01]
-        let (telinkBLENid, _, _) = k2(n: telinkBLEKey, p: [0x00])
-        print("MeshCrypto: Telink BLE default -> NID=0x\(String(format: "%02X", telinkBLENid))")
-
-        // Key 8: Mesh Profile Sample Data key
-        let meshSampleKey: [UInt8] = [0xF7, 0xA2, 0xA4, 0x4F, 0x8E, 0x8A, 0x80, 0x29,
-                                       0x06, 0x4F, 0x17, 0x3D, 0xDC, 0x1E, 0x2B, 0x00]
-        let (meshSampleNid, _, _) = k2(n: meshSampleKey, p: [0x00])
-        print("MeshCrypto: Mesh Sample key -> NID=0x\(String(format: "%02X", meshSampleNid))")
-
-        // Key 9: Try the light's advertising data as potential key hint
-        // MfgData: 11 02 00 A4 C1 38 56 0B 2D 02 10 ...
-        let advKey: [UInt8] = [0x11, 0x02, 0x00, 0xA4, 0xC1, 0x38, 0x56, 0x0B,
-                               0x2D, 0x02, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00]
-        let (advNid, _, _) = k2(n: advKey, p: [0x00])
-        print("MeshCrypto: Adv data as key -> NID=0x\(String(format: "%02X", advNid))")
-
-        print("MeshCrypto: =======================================")
-
-        // Use whichever key produces NID=0x01 (matching the light's beacon)
-        var keyToUse: [UInt8] = sidusKey
-        if sidusNid == 0x01 {
-            keyToUse = sidusKey
-            print("MeshCrypto: Using Sidus default key (NID matches)")
-        } else if zeroNid == 0x01 {
-            keyToUse = zeroKey
-            print("MeshCrypto: Using all-zero key (NID matches)")
-        } else if seqNid == 0x01 {
-            keyToUse = seqKey
-            print("MeshCrypto: Using sequential key (NID matches)")
-        } else if telinkNid == 0x01 {
-            keyToUse = telinkKey
-            print("MeshCrypto: Using Telink demo key (NID matches)")
-        } else if allOneNid == 0x01 {
-            keyToUse = allOneKey
-            print("MeshCrypto: Using all-0x01 key (NID matches)")
-        } else if allFFNid == 0x01 {
-            keyToUse = allFFKey
-            print("MeshCrypto: Using all-0xFF key (NID matches)")
-        } else if telinkBLENid == 0x01 {
-            keyToUse = telinkBLEKey
-            print("MeshCrypto: Using Telink BLE default key (NID matches)")
-        } else if meshSampleNid == 0x01 {
-            keyToUse = meshSampleKey
-            print("MeshCrypto: Using Mesh Sample key (NID matches)")
-        } else if advNid == 0x01 {
-            keyToUse = advKey
-            print("MeshCrypto: Using adv data key (NID matches)")
-        } else {
-            print("MeshCrypto: WARNING - No tested key produces NID=0x01!")
-            print("MeshCrypto: Using Sidus default key anyway")
-        }
-
-        networkKey = keyToUse
-        appKey = Array(SidusMeshConfig.defaultAppKey)
-        ivIndex = SidusMeshConfig.defaultIVIndex
+        // Load keys from KeyStorage (set during provisioning)
+        networkKey = storage.getNetworkKeyOrDefault()
+        appKey = storage.getAppKeyOrDefault()
+        ivIndex = storage.ivIndex
 
         print("MeshCrypto: Network Key = \(networkKey.map { String(format: "%02X", $0) }.joined())")
         print("MeshCrypto: App Key = \(appKey.map { String(format: "%02X", $0) }.joined())")
@@ -149,6 +61,8 @@ class MeshCrypto {
         print("MeshCrypto: NID = \(String(format: "0x%02X", nid))")
         print("MeshCrypto: AID = \(String(format: "0x%02X", aid))")
         print("MeshCrypto: Encryption Key = \(encKey.map { String(format: "%02X", $0) }.joined())")
+
+        storage.printDebugInfo()
     }
 
     /// Force reinitialization (call after keys change, e.g., after provisioning)
@@ -269,6 +183,203 @@ class MeshCrypto {
         return Data(proxyPDU)
     }
 
+    // MARK: - Device Key PDU (for Config messages)
+
+    /// Create a mesh proxy PDU encrypted with the device key (AKF=0)
+    /// Used for Config AppKey Add, Model App Bind, etc.
+    static func createDeviceKeyPDU(
+        accessPayload: [UInt8],
+        deviceKey: [UInt8],
+        dst: UInt16,
+        src: UInt16 = 0x0001,
+        ttl: UInt8 = 7
+    ) -> Data? {
+        if encryptionKey == nil {
+            initialize()
+        }
+
+        guard let encKey = encryptionKey, let privKey = privacyKey else {
+            print("MeshCrypto: Keys not initialized")
+            return nil
+        }
+
+        sequenceNumber += 1
+        let seq = sequenceNumber
+
+        print("MeshCrypto: [DevKey] Access payload = \(accessPayload.map { String(format: "%02X", $0) }.joined(separator: " "))")
+
+        // Device nonce (type 0x02)
+        let devNonce = buildDeviceNonce(seq: seq, src: src, dst: dst, ivIndex: ivIndex)
+
+        // Encrypt access layer with device key (AES-CCM, 4-byte MIC)
+        guard let encryptedAccess = aes_ccm_encrypt(
+            key: deviceKey,
+            nonce: devNonce,
+            plaintext: accessPayload,
+            micSize: 4
+        ) else {
+            print("MeshCrypto: [DevKey] Failed to encrypt access layer")
+            return nil
+        }
+
+        // Lower transport PDU: AKF=0, AID=0x00
+        let ltpHeader: UInt8 = 0x00  // SEG=0, AKF=0, AID=0
+        var lowerTransportPDU: [UInt8] = [ltpHeader]
+        lowerTransportPDU.append(contentsOf: encryptedAccess)
+
+        // Check if we need segmentation (max unsegmented = 15 bytes of upper transport)
+        // Upper transport = encrypted access payload + 4 byte MIC
+        if encryptedAccess.count > 15 {
+            print("MeshCrypto: [DevKey] Message needs segmentation (\(encryptedAccess.count) bytes)")
+            return createSegmentedDeviceKeyPDU(
+                accessPayload: accessPayload,
+                deviceKey: deviceKey,
+                dst: dst, src: src, ttl: ttl,
+                seq: seq
+            )
+        }
+
+        // Build network PDU (same as app key path)
+        let ivi = UInt8((ivIndex >> 31) & 0x01)
+        let nidByte = (ivi << 7) | (nid & 0x7F)
+        let ctlTtl: UInt8 = (0 << 7) | (ttl & 0x7F)
+
+        let netNonce = buildNetworkNonce(ctl: 0, ttl: ttl, seq: seq, src: src, ivIndex: ivIndex)
+
+        var dstTransport: [UInt8] = [
+            UInt8((dst >> 8) & 0xFF),
+            UInt8(dst & 0xFF)
+        ]
+        dstTransport.append(contentsOf: lowerTransportPDU)
+
+        guard let encryptedNet = aes_ccm_encrypt(
+            key: encKey,
+            nonce: netNonce,
+            plaintext: dstTransport,
+            micSize: 4
+        ) else {
+            print("MeshCrypto: [DevKey] Failed to encrypt network layer")
+            return nil
+        }
+
+        let obfuscatedHeader = obfuscate(
+            ctlTtl: ctlTtl, seq: seq, src: src,
+            encDst: Array(encryptedNet.prefix(2)),
+            privacyKey: privKey, ivIndex: ivIndex
+        )
+
+        var networkPDU: [UInt8] = [nidByte]
+        networkPDU.append(contentsOf: obfuscatedHeader)
+        networkPDU.append(contentsOf: encryptedNet)
+
+        // Wrap in proxy PDU
+        var proxyPDU: [UInt8] = [0x01]  // Complete message, Network PDU type
+        proxyPDU.append(contentsOf: networkPDU)
+
+        print("MeshCrypto: [DevKey] Proxy PDU = \(proxyPDU.map { String(format: "%02X", $0) }.joined(separator: " "))")
+        return Data(proxyPDU)
+    }
+
+    /// Create segmented device key PDU for messages > 15 bytes
+    private static func createSegmentedDeviceKeyPDU(
+        accessPayload: [UInt8],
+        deviceKey: [UInt8],
+        dst: UInt16, src: UInt16, ttl: UInt8,
+        seq: UInt32
+    ) -> Data? {
+        guard let encKey = encryptionKey, let privKey = privacyKey else { return nil }
+
+        // For segmented messages, use 8-byte TransMIC
+        let devNonce = buildDeviceNonce(seq: seq, src: src, dst: dst, ivIndex: ivIndex)
+
+        guard let encryptedAccess = aes_ccm_encrypt(
+            key: deviceKey,
+            nonce: devNonce,
+            plaintext: accessPayload,
+            micSize: 8  // 8-byte MIC for segmented
+        ) else { return nil }
+
+        // Segment the encrypted access PDU into 12-byte chunks
+        let segmentSize = 12
+        let totalSegments = (encryptedAccess.count + segmentSize - 1) / segmentSize
+        let seqZero = seq & 0x1FFF  // 13-bit SeqZero
+
+        var proxyPDUs: [UInt8] = []
+
+        for segN in 0..<totalSegments {
+            let isFirst = segN == 0
+            let isLast = segN == totalSegments - 1
+            let start = segN * segmentSize
+            let end = min(start + segmentSize, encryptedAccess.count)
+            let segmentData = Array(encryptedAccess[start..<end])
+
+            // Segmented lower transport header (4 bytes):
+            // SEG=1, AKF=0, AID=0x00 | SZMIC(1) + SeqZero(13) | SegO(5) + SegN(5)
+            let byte0: UInt8 = 0x80  // SEG=1, AKF=0, AID=0
+            let szmic: UInt8 = 1  // 8-byte TransMIC
+            let byte1: UInt8 = (szmic << 7) | UInt8((seqZero >> 6) & 0x7F)
+            let byte2: UInt8 = UInt8((seqZero & 0x3F) << 2) | UInt8((segN >> 3) & 0x03)
+            let byte3: UInt8 = UInt8((segN & 0x07) << 5) | UInt8(totalSegments - 1)
+
+            var lowerTransportPDU: [UInt8] = [byte0, byte1, byte2, byte3]
+            lowerTransportPDU.append(contentsOf: segmentData)
+
+            // Each segment gets its own sequence number
+            let segSeq = seq + UInt32(segN)
+
+            // Build network PDU
+            let ivi = UInt8((ivIndex >> 31) & 0x01)
+            let nidByte = (ivi << 7) | (nid & 0x7F)
+            let ctlTtl: UInt8 = (0 << 7) | (ttl & 0x7F)
+
+            let netNonce = buildNetworkNonce(ctl: 0, ttl: ttl, seq: segSeq, src: src, ivIndex: ivIndex)
+
+            var dstTransport: [UInt8] = [
+                UInt8((dst >> 8) & 0xFF),
+                UInt8(dst & 0xFF)
+            ]
+            dstTransport.append(contentsOf: lowerTransportPDU)
+
+            guard let encryptedNet = aes_ccm_encrypt(
+                key: encKey, nonce: netNonce,
+                plaintext: dstTransport, micSize: 8
+            ) else { return nil }
+
+            let obfuscatedHeader = obfuscate(
+                ctlTtl: ctlTtl, seq: segSeq, src: src,
+                encDst: Array(encryptedNet.prefix(2)),
+                privacyKey: privKey, ivIndex: ivIndex
+            )
+
+            var networkPDU: [UInt8] = [nidByte]
+            networkPDU.append(contentsOf: obfuscatedHeader)
+            networkPDU.append(contentsOf: encryptedNet)
+
+            // Proxy PDU SAR: first=0x40, continuation=0x80, last=0xC0, complete=0x00
+            let sar: UInt8
+            if totalSegments == 1 {
+                sar = 0x01  // Complete, Network PDU
+            } else if isFirst {
+                sar = 0x41  // First segment
+            } else if isLast {
+                sar = 0xC1  // Last segment
+            } else {
+                sar = 0x81  // Continuation
+            }
+
+            proxyPDUs.append(sar)
+            proxyPDUs.append(contentsOf: networkPDU)
+
+            // Consume sequence numbers
+            if segN > 0 {
+                sequenceNumber += 1
+            }
+        }
+
+        print("MeshCrypto: [DevKey] Segmented into \(totalSegments) segments")
+        return Data(proxyPDUs)
+    }
+
     // MARK: - Beacon Parsing
 
     /// Parse incoming mesh proxy PDU and extract network info
@@ -386,6 +497,24 @@ class MeshCrypto {
         nonce[6] = UInt8(src & 0xFF)
         nonce[7] = 0x00  // Pad
         nonce[8] = 0x00  // Pad
+        nonce[9] = UInt8((ivIndex >> 24) & 0xFF)
+        nonce[10] = UInt8((ivIndex >> 16) & 0xFF)
+        nonce[11] = UInt8((ivIndex >> 8) & 0xFF)
+        nonce[12] = UInt8(ivIndex & 0xFF)
+        return nonce
+    }
+
+    private static func buildDeviceNonce(seq: UInt32, src: UInt16, dst: UInt16, ivIndex: UInt32) -> [UInt8] {
+        var nonce = [UInt8](repeating: 0, count: 13)
+        nonce[0] = 0x02  // Device nonce type
+        nonce[1] = 0x00  // ASZMIC || Pad
+        nonce[2] = UInt8((seq >> 16) & 0xFF)
+        nonce[3] = UInt8((seq >> 8) & 0xFF)
+        nonce[4] = UInt8(seq & 0xFF)
+        nonce[5] = UInt8((src >> 8) & 0xFF)
+        nonce[6] = UInt8(src & 0xFF)
+        nonce[7] = UInt8((dst >> 8) & 0xFF)
+        nonce[8] = UInt8(dst & 0xFF)
         nonce[9] = UInt8((ivIndex >> 24) & 0xFF)
         nonce[10] = UInt8((ivIndex >> 16) & 0xFF)
         nonce[11] = UInt8((ivIndex >> 8) & 0xFF)

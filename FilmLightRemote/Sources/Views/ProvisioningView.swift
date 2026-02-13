@@ -232,6 +232,8 @@ struct ProvisioningView: View {
                     self.deviceKey = key
                     // Store the device key
                     KeyStorage.shared.storeDeviceKey(key, forAddress: provisioningManager.unicastAddress)
+                    // Reinitialize MeshCrypto with the keys used for provisioning
+                    MeshCrypto.reinitialize()
 
                 case .failure(let error):
                     self.errorMessage = error.localizedDescription
