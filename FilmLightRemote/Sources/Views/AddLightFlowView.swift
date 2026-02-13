@@ -361,6 +361,7 @@ struct AddLightFlowView: View {
         let address = keyStorage.allocateUnicastAddress()
         provisioningManager.unicastAddress = address
         provisionedAddress = address
+        bleManager.targetUnicastAddress = address
 
         provisioningManager.startProvisioning(
             peripheral: light.peripheral,

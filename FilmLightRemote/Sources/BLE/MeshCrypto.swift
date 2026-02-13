@@ -183,6 +183,96 @@ class MeshCrypto {
         return Data(proxyPDU)
     }
 
+    // MARK: - Standard Mesh Model PDU
+
+    /// Create a mesh proxy PDU from a pre-built access message (opcode + parameters).
+    /// Unlike createMeshProxyPDU(accessPayload:), this does NOT prepend vendor opcode.
+    /// Use for standard Bluetooth Mesh model commands (Generic OnOff, Light Lightness, etc.)
+    /// The access message must be small enough for unsegmented transport (max 11 bytes).
+    static func createStandardMeshPDU(
+        accessMessage: [UInt8],
+        dst: UInt16,
+        src: UInt16 = 0x0001,
+        ttl: UInt8 = 7
+    ) -> Data? {
+        if encryptionKey == nil {
+            initialize()
+        }
+
+        guard let encKey = encryptionKey, let privKey = privacyKey else {
+            print("MeshCrypto: Keys not initialized")
+            return nil
+        }
+
+        sequenceNumber += 1
+        let seq = sequenceNumber
+
+        print("MeshCrypto: [Std] dst=0x\(String(format: "%04X", dst)) access=\(accessMessage.map { String(format: "%02X", $0) }.joined(separator: " "))")
+
+        // Encrypt access layer with app key (AES-CCM, 4-byte MIC for unsegmented)
+        let appNonce = buildApplicationNonce(seq: seq, src: src, dst: dst, ivIndex: ivIndex)
+
+        guard let encryptedAccess = aes_ccm_encrypt(
+            key: appKey,
+            nonce: appNonce,
+            plaintext: accessMessage,
+            micSize: 4
+        ) else {
+            print("MeshCrypto: [Std] Failed to encrypt access layer")
+            return nil
+        }
+
+        // Build lower transport PDU (unsegmented access message)
+        // SEG=0, AKF=1, AID (6 bits)
+        let ltpHeader: UInt8 = (0 << 7) | (1 << 6) | (aid & 0x3F)
+        var lowerTransportPDU: [UInt8] = [ltpHeader]
+        lowerTransportPDU.append(contentsOf: encryptedAccess)
+
+        // Build network PDU
+        let ivi = UInt8((ivIndex >> 31) & 0x01)
+        let nidByte = (ivi << 7) | (nid & 0x7F)
+        let ctlTtl: UInt8 = (0 << 7) | (ttl & 0x7F)
+
+        let netNonce = buildNetworkNonce(ctl: 0, ttl: ttl, seq: seq, src: src, ivIndex: ivIndex)
+
+        var dstTransport: [UInt8] = [
+            UInt8((dst >> 8) & 0xFF),
+            UInt8(dst & 0xFF)
+        ]
+        dstTransport.append(contentsOf: lowerTransportPDU)
+
+        guard let encryptedNet = aes_ccm_encrypt(
+            key: encKey,
+            nonce: netNonce,
+            plaintext: dstTransport,
+            micSize: 4
+        ) else {
+            print("MeshCrypto: [Std] Failed to encrypt network layer")
+            return nil
+        }
+
+        let obfuscatedHeader = obfuscate(
+            ctlTtl: ctlTtl,
+            seq: seq,
+            src: src,
+            encDst: Array(encryptedNet.prefix(2)),
+            privacyKey: privKey,
+            ivIndex: ivIndex
+        )
+
+        var networkPDU: [UInt8] = [nidByte]
+        networkPDU.append(contentsOf: obfuscatedHeader)
+        networkPDU.append(contentsOf: encryptedNet)
+
+        // Wrap in Mesh Proxy PDU (SAR=0, Type=0x01 for Network PDU)
+        var proxyPDU: [UInt8] = [0x01]
+        proxyPDU.append(contentsOf: networkPDU)
+
+        print("MeshCrypto: [Std] Proxy PDU (\(proxyPDU.count) bytes)")
+
+        return Data(proxyPDU)
+    }
+
     // MARK: - Device Key PDU (for Config messages)
 
     /// Create a mesh proxy PDU encrypted with the device key (AKF=0)

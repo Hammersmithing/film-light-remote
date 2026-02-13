@@ -80,6 +80,16 @@ class BLEManager: NSObject, ObservableObject {
     // Post-provisioning configuration manager
     let configManager = MeshConfigManager()
 
+    /// Unicast address of the currently targeted light (set when opening a saved light)
+    var targetUnicastAddress: UInt16 = 0x0002
+
+    /// Transaction ID counter for mesh model commands
+    private var meshTID: UInt8 = 0
+    private func nextTID() -> UInt8 {
+        meshTID &+= 1
+        return meshTID
+    }
+
     // Core Bluetooth
     private(set) var centralManager: CBCentralManager!
     private(set) var connectedPeripheral: CBPeripheral?
@@ -286,37 +296,38 @@ class BLEManager: NSObject, ObservableObject {
         currentIntensity = percent
         guard let peripheral = connectedPeripheral else { return }
 
-        log("setIntensity(\(percent)%)")
+        log("setIntensity(\(percent)%) target=0x\(String(format: "%04X", targetUnicastAddress))")
 
-        // Create Sidus CCT protocol command (10-byte format)
-        let cctCmd = CCTProtocol(intensityPercent: Double(percent), cctKelvin: currentCCT)
-        let payload = cctCmd.getSendData()
+        // Standard Mesh: Light Lightness Set Unacknowledged
+        // Opcode: 0x82 0x4D | Parameters: Lightness (uint16 LE, 0-65535) + TID
+        // Total: 5 bytes — fits in unsegmented mesh PDU
+        let lightness = UInt16(Double(max(0, min(100, percent))) / 100.0 * 65535.0)
+        let tid = nextTID()
+        let lightnessCmd: [UInt8] = [
+            0x82, 0x4D,
+            UInt8(lightness & 0xFF), UInt8((lightness >> 8) & 0xFF),
+            tid
+        ]
 
-        log("  Sidus payload: \(payload.hexString)")
-
-        // Method 1: Try direct Sidus control characteristic (2B12) with opcode prefix
-        if let char = sidusControl {
-            // Try with Sidus opcode 0x26 prepended
-            var prefixedPayload = Data([0x26])
-            prefixedPayload.append(payload)
-            peripheral.writeValue(prefixedPayload, for: char, type: .withoutResponse)
-            log("  Sent [0x26 + payload] to Sidus control (2B12)")
-
-            // Also try raw payload without prefix
-            peripheral.writeValue(payload, for: char, type: .withoutResponse)
-            log("  Sent RAW to Sidus control (2B12)")
-        }
-
-        // Method 2: Try mesh proxy with encryption (includes opcode in MeshCrypto)
-        if let meshPDU = MeshCrypto.createMeshProxyPDU(accessPayload: payload) {
-            if let char = meshProxyIn {
+        if let char = meshProxyIn {
+            if let meshPDU = MeshCrypto.createStandardMeshPDU(
+                accessMessage: lightnessCmd,
+                dst: targetUnicastAddress
+            ) {
                 peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
-                log("  Sent ENCRYPTED to Mesh Proxy (2ADD)")
+                log("  Sent Light Lightness Set (\(lightness)) to 0x\(String(format: "%04X", targetUnicastAddress))")
             }
         }
 
-        // NOTE: Telink commands to FF02 cause disconnects - disabled
-        // The light expects mesh-encrypted commands only
+        // Direct characteristic fallback
+        if let char = sidusControl {
+            let cctCmd = CCTProtocol(intensityPercent: Double(percent), cctKelvin: currentCCT)
+            let payload = cctCmd.getSendData()
+            var prefixed = Data([0x26])
+            prefixed.append(payload)
+            peripheral.writeValue(prefixed, for: char, type: .withoutResponse)
+            log("  Sent to Sidus control (2B12) as fallback")
+        }
     }
 
     /// Current CCT value for combined commands
@@ -324,12 +335,43 @@ class BLEManager: NSObject, ObservableObject {
 
     func setCCT(_ kelvin: Int) {
         currentCCT = kelvin
+        guard let peripheral = connectedPeripheral else { return }
 
-        // Try simple format: [0x02] [cct_high] [cct_low]
-        let cctValue = UInt16(kelvin)
-        let simpleCmd = Data([0x02, UInt8(cctValue >> 8), UInt8(cctValue & 0xFF)])
-        log("setCCT(\(kelvin)K) simple -> \(simpleCmd.hexString)")
-        sendCommand(simpleCmd)
+        log("setCCT(\(kelvin)K) target=0x\(String(format: "%04X", targetUnicastAddress))")
+
+        // Standard Mesh: Light CTL Set Unacknowledged
+        // Opcode: 0x82 0x5F | Parameters: Lightness(u16) + Temperature(u16, 800-20000) + DeltaUV(s16) + TID
+        // Total: 9 bytes — fits in unsegmented mesh PDU (max 11 bytes)
+        let lightness = UInt16(Double(max(0, min(100, currentIntensity))) / 100.0 * 65535.0)
+        let temp = UInt16(max(800, min(20000, kelvin)))
+        let tid = nextTID()
+        let ctlCmd: [UInt8] = [
+            0x82, 0x5F,
+            UInt8(lightness & 0xFF), UInt8((lightness >> 8) & 0xFF),
+            UInt8(temp & 0xFF), UInt8((temp >> 8) & 0xFF),
+            0x00, 0x00,  // Delta UV = 0
+            tid
+        ]
+
+        if let char = meshProxyIn {
+            if let meshPDU = MeshCrypto.createStandardMeshPDU(
+                accessMessage: ctlCmd,
+                dst: targetUnicastAddress
+            ) {
+                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
+                log("  Sent Light CTL Set (temp: \(temp)K, lightness: \(lightness)) to 0x\(String(format: "%04X", targetUnicastAddress))")
+            }
+        }
+
+        // Direct characteristic fallback
+        if let char = sidusControl {
+            let cctCmd = CCTProtocol(intensityPercent: Double(currentIntensity), cctKelvin: kelvin)
+            let payload = cctCmd.getSendData()
+            var prefixed = Data([0x26])
+            prefixed.append(payload)
+            peripheral.writeValue(prefixed, for: char, type: .withoutResponse)
+            log("  Sent to Sidus control (2B12) as fallback")
+        }
     }
 
     func setRGB(red: Int, green: Int, blue: Int) {
@@ -339,45 +381,87 @@ class BLEManager: NSObject, ObservableObject {
     }
 
     func setHSI(hue: Int, saturation: Int, intensity: Int) {
-        let cmd = HSIProtocol(intensityPercent: Double(intensity), hue: hue, saturationPercent: Double(saturation))
-        let data = cmd.getSendData()
-        log("setHSI(h:\(hue), s:\(saturation), i:\(intensity)) -> \(data.hexString)")
-        sendCommand(data)
+        guard let peripheral = connectedPeripheral else { return }
+
+        log("setHSI(h:\(hue), s:\(saturation), i:\(intensity)) target=0x\(String(format: "%04X", targetUnicastAddress))")
+
+        // Standard Mesh: Light HSL Set Unacknowledged
+        // Opcode: 0x82 0x77 | Parameters: Lightness(u16) + Hue(u16) + Saturation(u16) + TID
+        // Total: 9 bytes — fits in unsegmented mesh PDU
+        let lightnessVal = UInt16(Double(max(0, min(100, intensity))) / 100.0 * 65535.0)
+        let hueVal = UInt16(Double(max(0, min(360, hue))) / 360.0 * 65535.0)
+        let satVal = UInt16(Double(max(0, min(100, saturation))) / 100.0 * 65535.0)
+        let tid = nextTID()
+        let hslCmd: [UInt8] = [
+            0x82, 0x77,
+            UInt8(lightnessVal & 0xFF), UInt8((lightnessVal >> 8) & 0xFF),
+            UInt8(hueVal & 0xFF), UInt8((hueVal >> 8) & 0xFF),
+            UInt8(satVal & 0xFF), UInt8((satVal >> 8) & 0xFF),
+            tid
+        ]
+
+        if let char = meshProxyIn {
+            if let meshPDU = MeshCrypto.createStandardMeshPDU(
+                accessMessage: hslCmd,
+                dst: targetUnicastAddress
+            ) {
+                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
+                log("  Sent Light HSL Set to 0x\(String(format: "%04X", targetUnicastAddress))")
+            }
+        }
+
+        // Direct characteristic fallback
+        if let char = sidusControl {
+            let cmd = HSIProtocol(intensityPercent: Double(intensity), hue: hue, saturationPercent: Double(saturation))
+            let payload = cmd.getSendData()
+            var prefixed = Data([0x26])
+            prefixed.append(payload)
+            peripheral.writeValue(prefixed, for: char, type: .withoutResponse)
+            log("  Sent to Sidus control (2B12) as fallback")
+        }
     }
 
     func setPowerOn(_ on: Bool) {
         guard let peripheral = connectedPeripheral else { return }
 
-        log("setPower(\(on))")
+        log("setPower(\(on)) target=0x\(String(format: "%04X", targetUnicastAddress))")
 
-        // Use OnOffProtocol format (10-byte Sidus command)
-        let powerCmd = OnOffProtocol(on: on)
-        let payload = powerCmd.getSendData()
-        log("  Sidus power payload: \(payload.hexString)")
+        // Method 1: Standard Bluetooth Mesh Generic OnOff Set Unacknowledged
+        // Opcode: 0x82 0x03 | Parameters: OnOff (1 byte) + TID (1 byte)
+        // Total: 4 bytes — fits in unsegmented mesh PDU (max 11 bytes)
+        let tid = nextTID()
+        let genericOnOff: [UInt8] = [0x82, 0x03, on ? 0x01 : 0x00, tid]
 
-        // Method 1: Send to Sidus control (2B12) with opcode prefix
-        if let char = sidusControl {
-            // Try with Sidus opcode 0x26 prepended
-            var prefixedPayload = Data([0x26])
-            prefixedPayload.append(payload)
-            peripheral.writeValue(prefixedPayload, for: char, type: .withoutResponse)
-            log("  Sent [0x26 + payload] to Sidus control (2B12)")
-
-            // Also try raw payload
-            peripheral.writeValue(payload, for: char, type: .withoutResponse)
-            log("  Sent RAW to Sidus control (2B12)")
-        }
-
-        // Method 2: Send via mesh proxy (includes opcode in MeshCrypto)
-        if let meshPDU = MeshCrypto.createMeshProxyPDU(accessPayload: payload) {
-            if let char = meshProxyIn {
+        if let char = meshProxyIn {
+            // Send to the light's unicast address
+            if let meshPDU = MeshCrypto.createStandardMeshPDU(
+                accessMessage: genericOnOff,
+                dst: targetUnicastAddress
+            ) {
                 peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
-                log("  Sent ENCRYPTED to Mesh Proxy (2ADD)")
+                log("  Sent Generic OnOff to unicast 0x\(String(format: "%04X", targetUnicastAddress))")
+            }
+
+            // Also send to all-nodes group for reliability
+            if let meshPDU = MeshCrypto.createStandardMeshPDU(
+                accessMessage: genericOnOff,
+                dst: 0xFFFF
+            ) {
+                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
+                log("  Sent Generic OnOff to all-nodes 0xFFFF")
             }
         }
 
-        // NOTE: Telink commands to FF02/7FCB cause disconnects - disabled
-        // The light expects mesh-encrypted commands only
+        // Method 2: Direct characteristic fallback (for lights with custom service)
+        if let char = sidusControl {
+            let powerCmd = OnOffProtocol(on: on)
+            let payload = powerCmd.getSendData()
+            var prefixed = Data([0x26])
+            prefixed.append(payload)
+            peripheral.writeValue(prefixed, for: char, type: .withoutResponse)
+            peripheral.writeValue(payload, for: char, type: .withoutResponse)
+            log("  Sent to Sidus control (2B12) as fallback")
+        }
     }
 
     func setEffect(_ effectId: Int, speed: Int = 50) {
@@ -426,12 +510,7 @@ class BLEManager: NSObject, ObservableObject {
 
     private func runPostProvisioningConfig(proxyIn: CBCharacteristic) {
         let storage = KeyStorage.shared
-        let addresses = storage.provisionedAddresses
-
-        guard let deviceAddress = addresses.last else {
-            log("No provisioned devices found — skipping config")
-            return
-        }
+        let deviceAddress = targetUnicastAddress
 
         guard let deviceKey = storage.getDeviceKey(forAddress: deviceAddress) else {
             log("No device key for address 0x\(String(format: "%04X", deviceAddress)) — skipping config")
