@@ -4,12 +4,13 @@ struct LightControlView: View {
     @EnvironmentObject var bleManager: BLEManager
     @ObservedObject var lightState: LightState
     var cctRange: ClosedRange<Double> = 2700...6500
+    var intensityStep: Double = 1.0
 
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
                 // Power and Intensity
-                PowerIntensitySection(lightState: lightState)
+                PowerIntensitySection(lightState: lightState, intensityStep: intensityStep)
 
                 // Mode picker
                 ModePicker(selectedMode: $lightState.mode)
@@ -67,6 +68,7 @@ private class ThrottledSender {
 struct PowerIntensitySection: View {
     @EnvironmentObject var bleManager: BLEManager
     @ObservedObject var lightState: LightState
+    var intensityStep: Double = 1.0
     private let throttle = ThrottledSender()
 
     var body: some View {
@@ -85,7 +87,7 @@ struct PowerIntensitySection: View {
                 Spacer()
 
                 // Intensity percentage display
-                Text("\(Int(lightState.intensity))%")
+                Text(intensityStep < 1 ? String(format: "%.1f%%", lightState.intensity) : "\(Int(lightState.intensity))%")
                     .font(.system(size: 48, weight: .bold, design: .rounded))
                     .monospacedDigit()
             }
@@ -96,7 +98,7 @@ struct PowerIntensitySection: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
 
-                Slider(value: $lightState.intensity, in: 0...100, step: 1)
+                Slider(value: $lightState.intensity, in: 0...100, step: intensityStep)
                     .tint(.orange)
                     .onChange(of: lightState.intensity) { _ in
                         throttle.send { [bleManager, lightState] in

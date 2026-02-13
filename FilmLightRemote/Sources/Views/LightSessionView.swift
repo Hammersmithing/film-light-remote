@@ -14,7 +14,7 @@ struct LightSessionView: View {
             Group {
                 switch bleManager.connectionState {
                 case .ready, .connected:
-                    LightControlView(lightState: lightState, cctRange: Self.cctRange(for: savedLight.name))
+                    LightControlView(lightState: lightState, cctRange: Self.cctRange(for: savedLight.name), intensityStep: Self.intensityStep(for: savedLight.name))
                 case .failed(let msg):
                     failedView(message: msg)
                 default:
@@ -107,5 +107,12 @@ struct LightSessionView: View {
             return 1800...20000
         }
         return 2700...6500
+    }
+
+    static func intensityStep(for name: String) -> Double {
+        if name.localizedCaseInsensitiveContains("660C") {
+            return 0.1
+        }
+        return 1.0
     }
 }
