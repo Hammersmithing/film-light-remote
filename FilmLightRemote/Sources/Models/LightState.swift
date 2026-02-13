@@ -131,6 +131,57 @@ class LightState: ObservableObject {
         return Color(red: r / 255.0, green: g / 255.0, blue: b / 255.0)
     }
 
+    // MARK: - Persistence
+
+    private static let statePrefix = "lightState."
+
+    func save(forLightId id: UUID) {
+        let data = PersistedState(
+            isOn: isOn, mode: mode.rawValue, intensity: intensity,
+            cctKelvin: cctKelvin, hue: hue, saturation: saturation,
+            hsiIntensity: hsiIntensity, red: red, green: green,
+            blue: blue, white: white,
+            effectId: selectedEffect.rawValue, effectSpeed: effectSpeed
+        )
+        if let encoded = try? JSONEncoder().encode(data) {
+            UserDefaults.standard.set(encoded, forKey: Self.statePrefix + id.uuidString)
+        }
+    }
+
+    func load(forLightId id: UUID) {
+        guard let data = UserDefaults.standard.data(forKey: Self.statePrefix + id.uuidString),
+              let state = try? JSONDecoder().decode(PersistedState.self, from: data) else { return }
+        isOn = state.isOn
+        mode = LightMode(rawValue: state.mode) ?? .cct
+        intensity = state.intensity
+        cctKelvin = state.cctKelvin
+        hue = state.hue
+        saturation = state.saturation
+        hsiIntensity = state.hsiIntensity
+        red = state.red
+        green = state.green
+        blue = state.blue
+        white = state.white
+        selectedEffect = LightEffect(rawValue: state.effectId) ?? .none
+        effectSpeed = state.effectSpeed
+    }
+
+    private struct PersistedState: Codable {
+        var isOn: Bool
+        var mode: String
+        var intensity: Double
+        var cctKelvin: Double
+        var hue: Double
+        var saturation: Double
+        var hsiIntensity: Double
+        var red: Double
+        var green: Double
+        var blue: Double
+        var white: Double
+        var effectId: Int
+        var effectSpeed: Double
+    }
+
     // MARK: - Presets
 
     func applyPreset(_ preset: LightPreset) {

@@ -33,8 +33,12 @@ struct LightSessionView: View {
             }
         }
         .onAppear {
+            lightState.load(forLightId: savedLight.id)
             bleManager.targetUnicastAddress = savedLight.unicastAddress
             bleManager.connectToKnownPeripheral(identifier: savedLight.peripheralIdentifier)
+        }
+        .onDisappear {
+            lightState.save(forLightId: savedLight.id)
         }
     }
 
