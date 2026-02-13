@@ -67,7 +67,15 @@ struct PowerIntensitySection: View {
 
                 Slider(value: $lightState.intensity, in: 0...100, step: 1) { editing in
                     if !editing {
-                        bleManager.setIntensity(Int(lightState.intensity))
+                        switch lightState.mode {
+                        case .hsi:
+                            lightState.hsiIntensity = lightState.intensity
+                            bleManager.setHSI(hue: Int(lightState.hue),
+                                            saturation: Int(lightState.saturation),
+                                            intensity: Int(lightState.intensity))
+                        default:
+                            bleManager.setIntensity(Int(lightState.intensity))
+                        }
                     }
                 }
                 .tint(.orange)
