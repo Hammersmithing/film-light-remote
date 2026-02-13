@@ -241,16 +241,4 @@ struct ProvisioningView: View {
     }
 }
 
-#Preview {
-    // Create a mock light for preview
-    let mockPeripheral = CBCentralManager().retrievePeripherals(withIdentifiers: []).first
-    let light = DiscoveredLight(
-        id: UUID(),
-        peripheral: mockPeripheral ?? CBCentralManager().retrievePeripherals(withIdentifiers: [UUID()]).first!,
-        name: "Amaran 60x",
-        rssi: -65
-    )
-
-    return ProvisioningView(light: light)
-        .environmentObject(BLEManager())
-}
+// Preview disabled — DiscoveredLight requires a real CBPeripheral

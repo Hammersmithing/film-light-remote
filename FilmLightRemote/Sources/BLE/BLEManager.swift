@@ -2,15 +2,34 @@ import Foundation
 import CoreBluetooth
 import Combine
 
-// MARK: - BLE UUIDs (To be determined from packet capture analysis)
-// These are placeholders - update after analyzing BLE traffic
-struct AputureUUIDs {
-    // Service UUIDs - discover these from packet capture
-    static let primaryService = CBUUID(string: "0000FFE0-0000-1000-8000-00805F9B34FB") // Placeholder
+// MARK: - Mesh Service UUIDs (from Bluetooth Mesh spec + Sidus Link decompile)
+struct MeshUUIDs {
+    // Standard Bluetooth Mesh service UUIDs
+    static let provisioningService = CBUUID(string: "1827")   // Unprovisioned devices
+    static let proxyService        = CBUUID(string: "1828")   // Provisioned devices
 
-    // Characteristic UUIDs - discover these from packet capture
-    static let controlCharacteristic = CBUUID(string: "0000FFE1-0000-1000-8000-00805F9B34FB") // Placeholder
-    static let statusCharacteristic = CBUUID(string: "0000FFE2-0000-1000-8000-00805F9B34FB") // Placeholder
+    // Provisioning characteristics
+    static let provisioningDataIn  = CBUUID(string: "2ADB")
+    static let provisioningDataOut = CBUUID(string: "2ADC")
+
+    // Proxy characteristics
+    static let proxyDataIn         = CBUUID(string: "2ADD")
+    static let proxyDataOut        = CBUUID(string: "2ADE")
+
+    // Sidus/Aputure custom service & characteristic
+    static let aputureControlService = CBUUID(string: "00010203-0405-0607-0809-0A0B0C0D1912")
+    static let aputureControlChar    = CBUUID(string: "00010203-0405-0607-0809-0A0B0C0D2B12")
+
+    // Sidus fast provisioning
+    static let fastProvService     = CBUUID(string: "FF01")
+    static let fastProvChar        = CBUUID(string: "FF02")
+
+    // Accessories OTA
+    static let accessoriesService  = CBUUID(string: "7FD3")
+    static let accessoriesChar     = CBUUID(string: "7FCB")
+
+    // Aputure manufacturer company ID
+    static let aputureCompanyID: UInt16 = 529  // 0x0211
 }
 
 // MARK: - Connection State
@@ -24,12 +43,21 @@ enum BLEConnectionState: Equatable {
     case failed(String)
 }
 
+// MARK: - Light Provisioning State
+enum LightMeshState: String {
+    case unprovisioned  // Advertising 0x1827 — factory reset, ready to add
+    case provisioned    // Advertising 0x1828 — already in a mesh network
+}
+
 // MARK: - Discovered Light
 struct DiscoveredLight: Identifiable, Equatable {
     let id: UUID
     let peripheral: CBPeripheral
     let name: String
-    let rssi: Int
+    var rssi: Int
+    let meshState: LightMeshState
+    let deviceUUID: UUID?        // Mesh device UUID (from unprovisioned beacon)
+    let serviceData: Data?       // Raw service data from advertisement
 
     static func == (lhs: DiscoveredLight, rhs: DiscoveredLight) -> Bool {
         lhs.id == rhs.id
@@ -75,6 +103,9 @@ class BLEManager: NSObject, ObservableObject {
 
     // MARK: - Public Methods
 
+    /// Scan mode: true = show all BLE devices (debug), false = mesh lights only
+    @Published var scanAllDevices = false
+
     func startScanning() {
         guard centralManager.state == .poweredOn else {
             log("Cannot scan - Bluetooth not powered on")
@@ -83,18 +114,27 @@ class BLEManager: NSObject, ObservableObject {
 
         discoveredLights.removeAll()
         connectionState = .scanning
-        log("Starting BLE scan for Aputure lights...")
 
-        // Scan for all devices initially to discover service UUIDs
-        // Later can filter by specific service UUID once discovered
-        centralManager.scanForPeripherals(
-            withServices: nil, // Scan all - change to [AputureUUIDs.primaryService] once known
-            options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
-        )
+        if scanAllDevices {
+            log("Starting BLE scan (ALL DEVICES - debug mode)...")
+            centralManager.scanForPeripherals(
+                withServices: nil,
+                options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
+            )
+        } else {
+            // Scan for ONLY Bluetooth Mesh devices:
+            // 0x1827 = unprovisioned (factory reset lights ready to add)
+            // 0x1828 = provisioned (lights already in a mesh network)
+            log("Scanning for Mesh lights (0x1827 unprovisioned + 0x1828 provisioned)...")
+            centralManager.scanForPeripherals(
+                withServices: [MeshUUIDs.provisioningService, MeshUUIDs.proxyService],
+                options: [CBCentralManagerScanOptionAllowDuplicatesKey: false]
+            )
+        }
 
-        // Stop scanning after 10 seconds
+        // Stop scanning after 15 seconds
         scanTimer?.invalidate()
-        scanTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: false) { [weak self] _ in
+        scanTimer = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: false) { [weak self] _ in
             self?.stopScanning()
         }
     }
@@ -382,36 +422,108 @@ extension BLEManager: CBCentralManagerDelegate {
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
                        advertisementData: [String: Any], rssi RSSI: NSNumber) {
         let name = peripheral.name ?? advertisementData[CBAdvertisementDataLocalNameKey] as? String ?? "Unknown"
+        let serviceUUIDs = advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []
+        let serviceDataMap = advertisementData[CBAdvertisementDataServiceDataKey] as? [CBUUID: Data] ?? [:]
+        let mfgData = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data
 
-        // Log all discovered devices in debug mode for initial discovery
+        // Determine mesh state from advertised service UUIDs
+        let isUnprovisioned = serviceUUIDs.contains(MeshUUIDs.provisioningService)
+        let isProvisioned = serviceUUIDs.contains(MeshUUIDs.proxyService)
+        let isMeshDevice = isUnprovisioned || isProvisioned
+
+        // In debug mode, log everything
         if debugMode {
-            var adData = "Advertisement: "
-            if let serviceUUIDs = advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] {
-                adData += "Services: \(serviceUUIDs) "
+            var adData = ""
+            if !serviceUUIDs.isEmpty { adData += "Services: \(serviceUUIDs) " }
+            if !serviceDataMap.isEmpty {
+                for (uuid, data) in serviceDataMap {
+                    adData += "SvcData[\(uuid)]: \(data.hexString) "
+                }
             }
-            if let mfgData = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data {
-                adData += "MfgData: \(mfgData.hexString)"
+            if let mfg = mfgData {
+                adData += "MfgData: \(mfg.hexString) "
+                // Check for Aputure company ID (529 = 0x0211, little-endian in BLE)
+                if mfg.count >= 2 {
+                    let companyID = UInt16(mfg[0]) | (UInt16(mfg[1]) << 8)
+                    if companyID == MeshUUIDs.aputureCompanyID {
+                        adData += "(Aputure!) "
+                    }
+                }
+            }
+            if isMeshDevice {
+                adData += isUnprovisioned ? "[UNPROVISIONED] " : "[PROVISIONED] "
             }
             log("Discovered: \(name) (RSSI: \(RSSI)) \(adData)")
         }
 
-        // Filter for Aputure devices - adjust filter criteria based on discovery
-        // Common patterns: name contains "Aputure", "Storm", "Amaran", "AL-", "MC", etc.
-        let aputureKeywords = ["aputure", "storm", "amaran", "sidus", "al-", "mc", "ls c"]
-        let isAputure = aputureKeywords.contains { name.lowercased().contains($0) }
+        // If scanning all devices in debug mode, show everything
+        // Otherwise only show mesh devices
+        guard isMeshDevice || scanAllDevices else { return }
 
-        if isAputure || debugMode { // In debug mode, show all devices
-            let light = DiscoveredLight(
-                id: peripheral.identifier,
-                peripheral: peripheral,
-                name: name,
-                rssi: RSSI.intValue
-            )
+        let meshState: LightMeshState = isUnprovisioned ? .unprovisioned : .provisioned
 
-            if !discoveredLights.contains(where: { $0.id == light.id }) {
-                discoveredLights.append(light)
-                log("Added light: \(name)")
+        // Parse device UUID from unprovisioned beacon service data
+        // Service data for 0x1827 contains: [16-byte device UUID] [2-byte OOB info]
+        var deviceUUID: UUID? = nil
+        var svcData: Data? = nil
+
+        if isUnprovisioned, let provData = serviceDataMap[MeshUUIDs.provisioningService] {
+            svcData = provData
+            if provData.count >= 16 {
+                let uuidBytes = provData.prefix(16)
+                // Convert 16 bytes to UUID
+                let uuidString = uuidBytes.map { String(format: "%02x", $0) }.joined()
+                let formatted = "\(uuidString.prefix(8))-\(uuidString.dropFirst(8).prefix(4))-\(uuidString.dropFirst(12).prefix(4))-\(uuidString.dropFirst(16).prefix(4))-\(uuidString.dropFirst(20))"
+                deviceUUID = UUID(uuidString: formatted)
+                log("  Mesh Device UUID: \(formatted)")
             }
+        }
+
+        if isProvisioned, let proxyData = serviceDataMap[MeshUUIDs.proxyService] {
+            svcData = proxyData
+            if proxyData.count >= 1 {
+                let advType = proxyData[0]
+                let typeDesc: String
+                switch advType {
+                case 0: typeDesc = "Network ID"
+                case 1: typeDesc = "Node Identity"
+                case 2: typeDesc = "Private Network ID"
+                case 3: typeDesc = "Private Node Identity"
+                default: typeDesc = "Unknown (\(advType))"
+                }
+                log("  Proxy advertisement type: \(typeDesc)")
+                if proxyData.count >= 9 {
+                    let networkID = proxyData[1..<9]
+                    log("  Network ID: \(Data(networkID).hexString)")
+                }
+            }
+        }
+
+        // Build the discovered light
+        let displayName: String
+        if name == "Unknown" {
+            // Try to build a name from mesh state
+            displayName = meshState == .unprovisioned ? "Mesh Light (new)" : "Mesh Light (provisioned)"
+        } else {
+            displayName = name
+        }
+
+        let light = DiscoveredLight(
+            id: peripheral.identifier,
+            peripheral: peripheral,
+            name: displayName,
+            rssi: RSSI.intValue,
+            meshState: meshState,
+            deviceUUID: deviceUUID,
+            serviceData: svcData
+        )
+
+        if let existingIndex = discoveredLights.firstIndex(where: { $0.id == light.id }) {
+            // Update RSSI for already-discovered device
+            discoveredLights[existingIndex] = light
+        } else {
+            discoveredLights.append(light)
+            log("Found \(meshState.rawValue) light: \(displayName)")
         }
     }
 
@@ -513,8 +625,7 @@ extension BLEManager: CBPeripheralDelegate {
             }
 
             // Priority 3: Sidus/Aputure custom control characteristic
-            let aputureControlUUID = CBUUID(string: "00010203-0405-0607-0809-0a0b0c0d2b12")
-            if characteristic.uuid == aputureControlUUID && isWritable {
+            if characteristic.uuid == MeshUUIDs.aputureControlChar && isWritable {
                 sidusControl = characteristic
                 log("    >>> Found Sidus control characteristic (2B12)!")
             }
@@ -544,12 +655,9 @@ extension BLEManager: CBPeripheralDelegate {
                 log("    >>> Found Provisioning Data Out (2ADC)!")
             }
 
-            // Standard Aputure UUIDs
-            if characteristic.uuid == AputureUUIDs.controlCharacteristic {
-                controlCharacteristic = characteristic
-                log("    >>> Found standard Aputure control characteristic")
-            } else if characteristic.uuid == AputureUUIDs.statusCharacteristic {
-                statusCharacteristic = characteristic
+            // Proxy Data Out (2ADE) - subscribe for mesh responses
+            if uuidString == "2ADE" {
+                log("    >>> Found Mesh Proxy Data Out (2ADE)!")
             }
         }
 

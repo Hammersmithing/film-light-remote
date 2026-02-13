@@ -12,23 +12,45 @@ struct ScannerView: View {
 
     var body: some View {
         NavigationStack {
-            VStack {
+            VStack(spacing: 0) {
+                // Scan mode toggle
+                Toggle("Show all BLE devices", isOn: $bleManager.scanAllDevices)
+                    .font(.caption)
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                    .onChange(of: bleManager.scanAllDevices) { _ in
+                        // Restart scan with new filter
+                        if bleManager.connectionState == .scanning {
+                            bleManager.stopScanning()
+                            bleManager.startScanning()
+                        }
+                    }
+
+                Divider()
+
                 if bleManager.connectionState == .scanning {
                     ProgressView()
-                        .padding()
+                        .padding(.top)
                     Text("Scanning for lights...")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.bottom, 4)
+                    Text(bleManager.scanAllDevices
+                        ? "Showing all BLE devices"
+                        : "Filtering: 0x1827 (unprovisioned) + 0x1828 (provisioned)")
+                        .font(.caption2)
                         .foregroundColor(.secondary)
                 }
 
                 if bleManager.discoveredLights.isEmpty && bleManager.connectionState != .scanning {
                     VStack(spacing: 16) {
                         Spacer()
-                        Image(systemName: "magnifyingglass")
+                        Image(systemName: "light.beacon.max")
                             .font(.system(size: 50))
                             .foregroundColor(.secondary)
-                        Text("No lights found")
+                        Text("No mesh lights found")
                             .font(.headline)
-                        Text("Make sure your light is powered on and in range")
+                        Text("Factory reset your light first:\nhold the reset button until it blinks.\nThen tap Scan.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
@@ -36,20 +58,52 @@ struct ScannerView: View {
                     }
                     .padding()
                 } else {
-                    // Sort by signal strength (strongest first)
-                    List(bleManager.discoveredLights.sorted { $0.rssi > $1.rssi }) { light in
+                    // Sort: unprovisioned first, then by signal strength
+                    let sorted = bleManager.discoveredLights.sorted { a, b in
+                        if a.meshState != b.meshState {
+                            return a.meshState == .unprovisioned
+                        }
+                        return a.rssi > b.rssi
+                    }
+
+                    List(sorted) { light in
                         Button {
-                            bleManager.connect(to: light)
-                            dismiss()
+                            if light.meshState == .unprovisioned {
+                                // Unprovisioned → go to provisioning
+                                lightToProvision = light
+                                showProvisioningSheet = true
+                            } else {
+                                // Provisioned → connect directly
+                                bleManager.connect(to: light)
+                                dismiss()
+                            }
                         } label: {
                             HStack {
-                                VStack(alignment: .leading) {
+                                // Mesh state indicator
+                                Circle()
+                                    .fill(light.meshState == .unprovisioned ? Color.orange : Color.green)
+                                    .frame(width: 10, height: 10)
+
+                                VStack(alignment: .leading, spacing: 2) {
                                     Text(light.name)
                                         .font(.headline)
                                         .foregroundColor(.primary)
-                                    Text("RSSI: \(light.rssi) dBm")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
+
+                                    HStack(spacing: 8) {
+                                        Text(light.meshState == .unprovisioned ? "New — tap to provision" : "Provisioned")
+                                            .font(.caption)
+                                            .foregroundColor(light.meshState == .unprovisioned ? .orange : .green)
+
+                                        Text("RSSI: \(light.rssi) dBm")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                    }
+
+                                    if let uuid = light.deviceUUID {
+                                        Text("UUID: \(uuid.uuidString.prefix(18))...")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                    }
                                 }
 
                                 Spacer()
@@ -66,11 +120,13 @@ struct ScannerView: View {
                                 Label("Connect", systemImage: "link")
                             }
 
-                            Button {
-                                lightToProvision = light
-                                showProvisioningSheet = true
-                            } label: {
-                                Label("Provision Device", systemImage: "key.fill")
+                            if light.meshState == .unprovisioned {
+                                Button {
+                                    lightToProvision = light
+                                    showProvisioningSheet = true
+                                } label: {
+                                    Label("Provision Device", systemImage: "key.fill")
+                                }
                             }
                         }
                     }

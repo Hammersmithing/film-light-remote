@@ -115,6 +115,7 @@ class SidusMeshManager: NSObject, ObservableObject {
     }
 
     /// Send raw command data
+    /// If connected via Mesh Proxy (provisioned device), wraps in encrypted mesh PDU
     func sendCommand(_ data: Data) {
         guard connectionState == .ready else {
             log("Error: Not connected/ready")
@@ -123,18 +124,66 @@ class SidusMeshManager: NSObject, ObservableObject {
 
         log("Sending: \(data.hexEncodedString)")
 
-        // Try Aputure control characteristic first
+        // Try Aputure control characteristic first (unprovisioned/direct control)
         if let char = aputureControl, let peripheral = connectedPeripheral {
             peripheral.writeValue(data, for: char, type: .withoutResponse)
             log("Sent via Aputure control characteristic")
         }
-        // Fall back to mesh proxy
+        // Use mesh proxy with encrypted PDU (provisioned device)
         else if let char = meshProxyDataIn, let peripheral = connectedPeripheral {
-            peripheral.writeValue(data, for: char, type: .withoutResponse)
-            log("Sent via Mesh Proxy")
+            // Reinitialize MeshCrypto to ensure it has the latest keys
+            MeshCrypto.reinitialize()
+
+            // Get the first provisioned device address, or use broadcast
+            let keyStorage = KeyStorage.shared
+            let dstAddress: UInt16 = keyStorage.provisionedAddresses.first ?? 0xFFFF
+
+            log("Wrapping in mesh PDU for address 0x\(String(format: "%04X", dstAddress))")
+
+            // Create encrypted mesh proxy PDU
+            if let meshPDU = MeshCrypto.createMeshProxyPDU(
+                accessPayload: data,
+                dst: dstAddress,
+                src: 0x0001,  // Provisioner address
+                ttl: 7
+            ) {
+                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
+                log("Sent via Mesh Proxy (encrypted): \(meshPDU.hexEncodedString)")
+            } else {
+                log("Error: Failed to create mesh PDU")
+            }
         }
         else {
             log("Error: No writable characteristic available")
+        }
+    }
+
+    /// Send command to a specific unicast address
+    func sendCommand(_ data: Data, toAddress address: UInt16) {
+        guard connectionState == .ready else {
+            log("Error: Not connected/ready")
+            return
+        }
+
+        guard let char = meshProxyDataIn, let peripheral = connectedPeripheral else {
+            log("Error: Mesh proxy not available")
+            return
+        }
+
+        MeshCrypto.reinitialize()
+
+        log("Sending to address 0x\(String(format: "%04X", address)): \(data.hexEncodedString)")
+
+        if let meshPDU = MeshCrypto.createMeshProxyPDU(
+            accessPayload: data,
+            dst: address,
+            src: 0x0001,
+            ttl: 7
+        ) {
+            peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
+            log("Sent via Mesh Proxy: \(meshPDU.hexEncodedString)")
+        } else {
+            log("Error: Failed to create mesh PDU")
         }
     }
 
@@ -193,23 +242,28 @@ extension SidusMeshManager: CBCentralManagerDelegate {
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
                        advertisementData: [String: Any], rssi RSSI: NSNumber) {
         let name = peripheral.name ?? advertisementData[CBAdvertisementDataLocalNameKey] as? String ?? "Unknown"
+        let serviceUUIDs = advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []
 
-        // Filter for Aputure/Amaran devices
-        let keywords = ["aputure", "storm", "amaran", "sidus", "al-", "mc", "ls c", "infinibar"]
-        let isAputure = keywords.contains { name.lowercased().contains($0) }
+        // Only accept Bluetooth Mesh devices
+        let isUnprovisioned = serviceUUIDs.contains(MeshUUIDs.provisioningService)
+        let isProvisioned = serviceUUIDs.contains(MeshUUIDs.proxyService)
 
-        if isAputure {
-            let light = DiscoveredLight(
-                id: peripheral.identifier,
-                peripheral: peripheral,
-                name: name,
-                rssi: RSSI.intValue
-            )
+        guard isUnprovisioned || isProvisioned else { return }
 
-            if !discoveredLights.contains(where: { $0.id == light.id }) {
-                discoveredLights.append(light)
-                log("Found: \(name) (RSSI: \(RSSI))")
-            }
+        let meshState: LightMeshState = isUnprovisioned ? .unprovisioned : .provisioned
+        let light = DiscoveredLight(
+            id: peripheral.identifier,
+            peripheral: peripheral,
+            name: name,
+            rssi: RSSI.intValue,
+            meshState: meshState,
+            deviceUUID: nil,
+            serviceData: nil
+        )
+
+        if !discoveredLights.contains(where: { $0.id == light.id }) {
+            discoveredLights.append(light)
+            log("Found \(meshState.rawValue): \(name) (RSSI: \(RSSI))")
         }
     }
 
