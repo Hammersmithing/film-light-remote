@@ -289,11 +289,15 @@ class BLEManager: NSObject, ObservableObject {
 
     // MARK: - Light Control Commands (using Sidus Protocol)
 
-    /// Current intensity for CCT mode (stored for combined commands)
+    /// Current light state (stored for combined commands like power on/off)
     private var currentIntensity: Int = 50
+    private var currentMode: String = "cct"
+    private var currentHue: Int = 0
+    private var currentSaturation: Int = 100
 
     func setIntensity(_ percent: Int) {
         currentIntensity = percent
+        currentMode = "cct"
         guard let peripheral = connectedPeripheral else { return }
 
         log("setIntensity(\(percent)%) target=0x\(String(format: "%04X", targetUnicastAddress))")
@@ -320,6 +324,7 @@ class BLEManager: NSObject, ObservableObject {
 
     func setCCT(_ kelvin: Int) {
         currentCCT = kelvin
+        currentMode = "cct"
         guard let peripheral = connectedPeripheral else { return }
 
         log("setCCT(\(kelvin)K) target=0x\(String(format: "%04X", targetUnicastAddress))")
@@ -348,6 +353,10 @@ class BLEManager: NSObject, ObservableObject {
     }
 
     func setHSI(hue: Int, saturation: Int, intensity: Int) {
+        currentMode = "hsi"
+        currentHue = hue
+        currentSaturation = saturation
+        currentIntensity = intensity
         guard let peripheral = connectedPeripheral else { return }
 
         log("setHSI(h:\(hue), s:\(saturation), i:\(intensity)) target=0x\(String(format: "%04X", targetUnicastAddress))")
@@ -372,21 +381,35 @@ class BLEManager: NSObject, ObservableObject {
     func setPowerOn(_ on: Bool) {
         guard let peripheral = connectedPeripheral else { return }
 
-        log("setPower(\(on)) target=0x\(String(format: "%04X", targetUnicastAddress))")
+        log("setPower(\(on)) mode=\(currentMode) target=0x\(String(format: "%04X", targetUnicastAddress))")
 
-        // Use CCTProtocol with sleepMode to control power:
-        // sleepMode=0 → OFF (sleep), sleepMode=1 → ON with current intensity/CCT
-        // This avoids the issue of SleepProtocol waking the light at 0% brightness.
         let intensity = on ? max(currentIntensity, 10) : 0
-        let cctCmd = CCTProtocol(
-            intensity: intensity * 10,
-            cct: currentCCT / 10,
-            gm: 100,
-            gmFlag: 0,
-            sleepMode: on ? 1 : 0,
-            autoPatchFlag: 0
-        )
-        let payload = cctCmd.getSendData()
+        let payload: Data
+
+        if currentMode == "hsi" {
+            let cmd = HSIProtocol(
+                intensity: intensity * 10,
+                hue: currentHue,
+                sat: currentSaturation,
+                cct: 200,
+                gm: 100,
+                gmFlag: 0,
+                sleepMode: on ? 1 : 0,
+                autoPatchFlag: 0
+            )
+            payload = cmd.getSendData()
+        } else {
+            let cmd = CCTProtocol(
+                intensity: intensity * 10,
+                cct: currentCCT / 10,
+                gm: 100,
+                gmFlag: 0,
+                sleepMode: on ? 1 : 0,
+                autoPatchFlag: 0
+            )
+            payload = cmd.getSendData()
+        }
+
         var accessMessage: [UInt8] = [0x26]
         accessMessage.append(contentsOf: payload)
 
@@ -396,7 +419,7 @@ class BLEManager: NSObject, ObservableObject {
                 dst: targetUnicastAddress
             ) {
                 peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
-                log("  Sent CCT power \(on ? "ON" : "OFF") (intensity=\(intensity)%, cct=\(currentCCT)K) to 0x\(String(format: "%04X", targetUnicastAddress))")
+                log("  Sent \(currentMode) power \(on ? "ON" : "OFF") (intensity=\(intensity)%) to 0x\(String(format: "%04X", targetUnicastAddress))")
             }
         }
     }
