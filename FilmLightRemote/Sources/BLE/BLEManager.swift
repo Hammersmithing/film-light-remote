@@ -290,10 +290,19 @@ class BLEManager: NSObject, ObservableObject {
     // MARK: - Light Control Commands (using Sidus Protocol)
 
     /// Current light state (stored for combined commands like power on/off)
-    private var currentIntensity: Int = 50
-    private var currentMode: String = "cct"
-    private var currentHue: Int = 0
-    private var currentSaturation: Int = 100
+    private(set) var currentIntensity: Int = 50
+    private(set) var currentMode: String = "cct"
+    private(set) var currentHue: Int = 0
+    private(set) var currentSaturation: Int = 100
+
+    /// Sync BLEManager state from a loaded LightState (call when opening a light session)
+    func syncState(from lightState: LightState) {
+        currentIntensity = Int(lightState.intensity)
+        currentCCT = Int(lightState.cctKelvin)
+        currentMode = lightState.mode == .hsi ? "hsi" : "cct"
+        currentHue = Int(lightState.hue)
+        currentSaturation = Int(lightState.saturation)
+    }
 
     func setIntensity(_ percent: Int) {
         currentIntensity = percent
