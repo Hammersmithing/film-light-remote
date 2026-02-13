@@ -6,6 +6,8 @@ struct MyLightsView: View {
     @State private var showingAddLight = false
     @State private var showingDebugLog = false
     @State private var selectedLight: SavedLight?
+    @State private var renamingLight: SavedLight?
+    @State private var renameText: String = ""
 
     var body: some View {
         NavigationStack {
@@ -47,6 +49,24 @@ struct MyLightsView: View {
             }
             .onAppear {
                 reloadLights()
+            }
+            .alert("Rename Light", isPresented: Binding(
+                get: { renamingLight != nil },
+                set: { if !$0 { renamingLight = nil } }
+            )) {
+                TextField("Light name", text: $renameText)
+                Button("Cancel", role: .cancel) { renamingLight = nil }
+                Button("Save") {
+                    if let light = renamingLight, !renameText.isEmpty {
+                        var updated = light
+                        updated.name = renameText
+                        KeyStorage.shared.updateSavedLight(updated)
+                        reloadLights()
+                    }
+                    renamingLight = nil
+                }
+            } message: {
+                Text("Enter a new name for this light.")
             }
         }
     }
@@ -102,11 +122,16 @@ struct MyLightsView: View {
                 Button {
                     selectedLight = light
                 } label: {
-                    LightRow(light: light)
+                    LightRow(light: light, onRename: {
+                        renameText = light.name
+                        renamingLight = light
+                    }, onDelete: {
+                        KeyStorage.shared.removeSavedLight(light)
+                        reloadLights()
+                    })
                 }
                 .tint(.primary)
             }
-            .onDelete(perform: deleteLights)
         }
     }
 
@@ -116,18 +141,14 @@ struct MyLightsView: View {
         savedLights = KeyStorage.shared.savedLights
     }
 
-    private func deleteLights(at offsets: IndexSet) {
-        for index in offsets {
-            KeyStorage.shared.removeSavedLight(savedLights[index])
-        }
-        reloadLights()
-    }
 }
 
 // MARK: - Light Row
 
 private struct LightRow: View {
     let light: SavedLight
+    var onRename: () -> Void
+    var onDelete: () -> Void
 
     var body: some View {
         HStack(spacing: 14) {
@@ -148,9 +169,24 @@ private struct LightRow: View {
 
             Spacer()
 
-            Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundColor(.secondary)
+            Menu {
+                Button {
+                    onRename()
+                } label: {
+                    Label("Rename", systemImage: "pencil")
+                }
+                Button(role: .destructive) {
+                    onDelete()
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.body)
+                    .foregroundColor(.secondary)
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
+            }
         }
         .padding(.vertical, 4)
     }
