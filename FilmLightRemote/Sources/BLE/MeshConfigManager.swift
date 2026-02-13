@@ -113,8 +113,8 @@ class MeshConfigManager: ObservableObject {
 
         log("AppKey Add payload (\(payload.count) bytes): \(payload.map { String(format: "%02X", $0) }.joined(separator: " "))")
 
-        // Encrypt with device key and send
-        guard let pdu = MeshCrypto.createDeviceKeyPDU(
+        // Encrypt with device key and send (may be multiple PDUs if segmented)
+        guard let pdus = MeshCrypto.createDeviceKeyPDU(
             accessPayload: payload,
             deviceKey: deviceKey,
             dst: unicastAddress
@@ -123,7 +123,7 @@ class MeshConfigManager: ObservableObject {
             return
         }
 
-        sendPDU(pdu)
+        sendPDUs(pdus)
 
         state = .waitingAppKeyStatus
 
@@ -181,7 +181,7 @@ class MeshConfigManager: ObservableObject {
             payload.append(UInt8((modelID >> 24) & 0xFF))
         }
 
-        guard let pdu = MeshCrypto.createDeviceKeyPDU(
+        guard let pdus = MeshCrypto.createDeviceKeyPDU(
             accessPayload: payload,
             deviceKey: deviceKey,
             dst: unicastAddress
@@ -190,7 +190,7 @@ class MeshConfigManager: ObservableObject {
             return
         }
 
-        sendPDU(pdu)
+        sendPDUs(pdus)
 
         state = .waitingModelBindStatus
         modelBindIndex += 1
@@ -220,14 +220,21 @@ class MeshConfigManager: ObservableObject {
 
     // MARK: - Send
 
-    private func sendPDU(_ data: Data) {
+    /// Write each proxy PDU as a separate GATT write with 50ms spacing.
+    /// Each transport segment must be a separate write to the proxy characteristic.
+    private func sendPDUs(_ pdus: [Data]) {
         guard let peripheral = peripheral, let char = proxyDataIn else {
             fail("No proxy connection")
             return
         }
 
-        peripheral.writeValue(data, for: char, type: .withoutResponse)
-        log("Sent \(data.count) bytes to proxy")
+        for (i, pdu) in pdus.enumerated() {
+            let delay = Double(i) * 0.05  // 50ms between segments
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                peripheral.writeValue(pdu, for: char, type: .withoutResponse)
+            }
+        }
+        log("Sent \(pdus.count) PDU(s) to proxy (\(pdus.map { $0.count }.reduce(0, +)) bytes total)")
     }
 
     private func log(_ message: String) {

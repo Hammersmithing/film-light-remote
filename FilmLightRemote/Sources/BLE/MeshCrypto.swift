@@ -125,7 +125,7 @@ class MeshCrypto {
         lowerTransportPDU.append(contentsOf: encryptedAccess)
 
         // Build network PDU
-        let ivi = UInt8((ivIndex >> 31) & 0x01)
+        let ivi = UInt8(ivIndex & 0x01)
         let nidByte = (ivi << 7) | (nid & 0x7F)
         let ctlTtl: UInt8 = (0 << 7) | (ttl & 0x7F)  // CTL=0 for access message
 
@@ -155,7 +155,7 @@ class MeshCrypto {
             ctlTtl: ctlTtl,
             seq: seq,
             src: src,
-            encDst: Array(encryptedNet.prefix(2)),
+            encryptedPayload: Array(encryptedNet),
             privacyKey: privKey,
             ivIndex: ivIndex
         )
@@ -175,7 +175,7 @@ class MeshCrypto {
         print("MeshCrypto: Network PDU = \(networkPDU.map { String(format: "%02X", $0) }.joined(separator: " "))")
 
         // Wrap in Mesh Proxy PDU (SAR=0, Type=0x01 for Network PDU)
-        var proxyPDU: [UInt8] = [0x01]  // Complete message, Network PDU type
+        var proxyPDU: [UInt8] = [0x00]  // SAR=complete, Type=Network PDU
         proxyPDU.append(contentsOf: networkPDU)
 
         print("MeshCrypto: Proxy PDU = \(proxyPDU.map { String(format: "%02X", $0) }.joined(separator: " "))")
@@ -229,7 +229,7 @@ class MeshCrypto {
         lowerTransportPDU.append(contentsOf: encryptedAccess)
 
         // Build network PDU
-        let ivi = UInt8((ivIndex >> 31) & 0x01)
+        let ivi = UInt8(ivIndex & 0x01)
         let nidByte = (ivi << 7) | (nid & 0x7F)
         let ctlTtl: UInt8 = (0 << 7) | (ttl & 0x7F)
 
@@ -255,7 +255,7 @@ class MeshCrypto {
             ctlTtl: ctlTtl,
             seq: seq,
             src: src,
-            encDst: Array(encryptedNet.prefix(2)),
+            encryptedPayload: Array(encryptedNet),
             privacyKey: privKey,
             ivIndex: ivIndex
         )
@@ -264,8 +264,8 @@ class MeshCrypto {
         networkPDU.append(contentsOf: obfuscatedHeader)
         networkPDU.append(contentsOf: encryptedNet)
 
-        // Wrap in Mesh Proxy PDU (SAR=0, Type=0x01 for Network PDU)
-        var proxyPDU: [UInt8] = [0x01]
+        // Wrap in Mesh Proxy PDU: SAR=complete, Type=Network PDU
+        var proxyPDU: [UInt8] = [0x00]
         proxyPDU.append(contentsOf: networkPDU)
 
         print("MeshCrypto: [Std] Proxy PDU (\(proxyPDU.count) bytes)")
@@ -277,13 +277,16 @@ class MeshCrypto {
 
     /// Create a mesh proxy PDU encrypted with the device key (AKF=0)
     /// Used for Config AppKey Add, Model App Bind, etc.
+    /// Returns an array of proxy PDUs to write separately to the GATT proxy characteristic.
+    /// For unsegmented messages, returns a single-element array.
+    /// For segmented messages (AppKey Add etc.), returns one PDU per transport segment.
     static func createDeviceKeyPDU(
         accessPayload: [UInt8],
         deviceKey: [UInt8],
         dst: UInt16,
         src: UInt16 = 0x0001,
         ttl: UInt8 = 7
-    ) -> Data? {
+    ) -> [Data]? {
         if encryptionKey == nil {
             initialize()
         }
@@ -312,13 +315,7 @@ class MeshCrypto {
             return nil
         }
 
-        // Lower transport PDU: AKF=0, AID=0x00
-        let ltpHeader: UInt8 = 0x00  // SEG=0, AKF=0, AID=0
-        var lowerTransportPDU: [UInt8] = [ltpHeader]
-        lowerTransportPDU.append(contentsOf: encryptedAccess)
-
         // Check if we need segmentation (max unsegmented = 15 bytes of upper transport)
-        // Upper transport = encrypted access payload + 4 byte MIC
         if encryptedAccess.count > 15 {
             print("MeshCrypto: [DevKey] Message needs segmentation (\(encryptedAccess.count) bytes)")
             return createSegmentedDeviceKeyPDU(
@@ -329,8 +326,13 @@ class MeshCrypto {
             )
         }
 
-        // Build network PDU (same as app key path)
-        let ivi = UInt8((ivIndex >> 31) & 0x01)
+        // Lower transport PDU: AKF=0, AID=0x00
+        let ltpHeader: UInt8 = 0x00  // SEG=0, AKF=0, AID=0
+        var lowerTransportPDU: [UInt8] = [ltpHeader]
+        lowerTransportPDU.append(contentsOf: encryptedAccess)
+
+        // Build network PDU
+        let ivi = UInt8(ivIndex & 0x01)
         let nidByte = (ivi << 7) | (nid & 0x7F)
         let ctlTtl: UInt8 = (0 << 7) | (ttl & 0x7F)
 
@@ -354,7 +356,7 @@ class MeshCrypto {
 
         let obfuscatedHeader = obfuscate(
             ctlTtl: ctlTtl, seq: seq, src: src,
-            encDst: Array(encryptedNet.prefix(2)),
+            encryptedPayload: Array(encryptedNet),
             privacyKey: privKey, ivIndex: ivIndex
         )
 
@@ -362,31 +364,32 @@ class MeshCrypto {
         networkPDU.append(contentsOf: obfuscatedHeader)
         networkPDU.append(contentsOf: encryptedNet)
 
-        // Wrap in proxy PDU
-        var proxyPDU: [UInt8] = [0x01]  // Complete message, Network PDU type
+        // Wrap in proxy PDU: SAR=0x00 (complete), Type=0x00 (Network PDU) → header = 0x00
+        var proxyPDU: [UInt8] = [0x00]
         proxyPDU.append(contentsOf: networkPDU)
 
         print("MeshCrypto: [DevKey] Proxy PDU = \(proxyPDU.map { String(format: "%02X", $0) }.joined(separator: " "))")
-        return Data(proxyPDU)
+        return [Data(proxyPDU)]
     }
 
-    /// Create segmented device key PDU for messages > 15 bytes
+    /// Create segmented device key PDUs for messages > 15 bytes.
+    /// Returns an array of proxy PDUs, one per transport segment, to be written separately.
     private static func createSegmentedDeviceKeyPDU(
         accessPayload: [UInt8],
         deviceKey: [UInt8],
         dst: UInt16, src: UInt16, ttl: UInt8,
         seq: UInt32
-    ) -> Data? {
+    ) -> [Data]? {
         guard let encKey = encryptionKey, let privKey = privacyKey else { return nil }
 
-        // For segmented messages, use 8-byte TransMIC
+        // Use 4-byte TransMIC (SZMIC=0) — matches ASZMIC=0 in device nonce
         let devNonce = buildDeviceNonce(seq: seq, src: src, dst: dst, ivIndex: ivIndex)
 
         guard let encryptedAccess = aes_ccm_encrypt(
             key: deviceKey,
             nonce: devNonce,
             plaintext: accessPayload,
-            micSize: 8  // 8-byte MIC for segmented
+            micSize: 4  // 4-byte TransMIC (SZMIC=0)
         ) else { return nil }
 
         // Segment the encrypted access PDU into 12-byte chunks
@@ -394,11 +397,9 @@ class MeshCrypto {
         let totalSegments = (encryptedAccess.count + segmentSize - 1) / segmentSize
         let seqZero = seq & 0x1FFF  // 13-bit SeqZero
 
-        var proxyPDUs: [UInt8] = []
+        var result: [Data] = []
 
         for segN in 0..<totalSegments {
-            let isFirst = segN == 0
-            let isLast = segN == totalSegments - 1
             let start = segN * segmentSize
             let end = min(start + segmentSize, encryptedAccess.count)
             let segmentData = Array(encryptedAccess[start..<end])
@@ -406,7 +407,7 @@ class MeshCrypto {
             // Segmented lower transport header (4 bytes):
             // SEG=1, AKF=0, AID=0x00 | SZMIC(1) + SeqZero(13) | SegO(5) + SegN(5)
             let byte0: UInt8 = 0x80  // SEG=1, AKF=0, AID=0
-            let szmic: UInt8 = 1  // 8-byte TransMIC
+            let szmic: UInt8 = 0  // 4-byte TransMIC (matches ASZMIC=0 in nonce)
             let byte1: UInt8 = (szmic << 7) | UInt8((seqZero >> 6) & 0x7F)
             let byte2: UInt8 = UInt8((seqZero & 0x3F) << 2) | UInt8((segN >> 3) & 0x03)
             let byte3: UInt8 = UInt8((segN & 0x07) << 5) | UInt8(totalSegments - 1)
@@ -418,7 +419,7 @@ class MeshCrypto {
             let segSeq = seq + UInt32(segN)
 
             // Build network PDU
-            let ivi = UInt8((ivIndex >> 31) & 0x01)
+            let ivi = UInt8(ivIndex & 0x01)
             let nidByte = (ivi << 7) | (nid & 0x7F)
             let ctlTtl: UInt8 = (0 << 7) | (ttl & 0x7F)
 
@@ -430,14 +431,15 @@ class MeshCrypto {
             ]
             dstTransport.append(contentsOf: lowerTransportPDU)
 
+            // NetMIC = 4 bytes for access messages (CTL=0)
             guard let encryptedNet = aes_ccm_encrypt(
                 key: encKey, nonce: netNonce,
-                plaintext: dstTransport, micSize: 8
+                plaintext: dstTransport, micSize: 4
             ) else { return nil }
 
             let obfuscatedHeader = obfuscate(
                 ctlTtl: ctlTtl, seq: segSeq, src: src,
-                encDst: Array(encryptedNet.prefix(2)),
+                encryptedPayload: Array(encryptedNet),
                 privacyKey: privKey, ivIndex: ivIndex
             )
 
@@ -445,20 +447,11 @@ class MeshCrypto {
             networkPDU.append(contentsOf: obfuscatedHeader)
             networkPDU.append(contentsOf: encryptedNet)
 
-            // Proxy PDU SAR: first=0x40, continuation=0x80, last=0xC0, complete=0x00
-            let sar: UInt8
-            if totalSegments == 1 {
-                sar = 0x01  // Complete, Network PDU
-            } else if isFirst {
-                sar = 0x41  // First segment
-            } else if isLast {
-                sar = 0xC1  // Last segment
-            } else {
-                sar = 0x81  // Continuation
-            }
-
-            proxyPDUs.append(sar)
-            proxyPDUs.append(contentsOf: networkPDU)
+            // Each transport segment is a separate network PDU →
+            // each gets a COMPLETE proxy PDU (SAR=0x00, Type=0x00)
+            var proxyPDU: [UInt8] = [0x00]
+            proxyPDU.append(contentsOf: networkPDU)
+            result.append(Data(proxyPDU))
 
             // Consume sequence numbers
             if segN > 0 {
@@ -466,8 +459,75 @@ class MeshCrypto {
             }
         }
 
-        print("MeshCrypto: [DevKey] Segmented into \(totalSegments) segments")
-        return Data(proxyPDUs)
+        print("MeshCrypto: [DevKey] Segmented into \(totalSegments) PDUs")
+        return result
+    }
+
+    // MARK: - Proxy Filter Configuration
+
+    /// Create a proxy configuration PDU to set the filter to blacklist mode (accept all).
+    /// Must be sent to 2ADD immediately after connecting to a GATT Proxy node,
+    /// because the default empty whitelist drops all forwarded PDUs.
+    static func createProxyFilterSetup() -> Data? {
+        if encryptionKey == nil {
+            initialize()
+        }
+
+        guard let encKey = encryptionKey, let privKey = privacyKey else {
+            print("MeshCrypto: Keys not initialized for proxy filter")
+            return nil
+        }
+
+        sequenceNumber += 1
+        let seq = sequenceNumber
+        let src: UInt16 = 0x0001  // Our address
+        let dst: UInt16 = 0x0000  // Proxy config messages use DST=0x0000
+
+        // Lower transport PDU for unsegmented control message:
+        // Byte 0: SEG=0 (bit 7) | Opcode (bits 6-0) = 0x00 (Set Filter Type)
+        // Byte 1: FilterType = 0x01 (blacklist = accept all)
+        let lowerTransportPDU: [UInt8] = [0x00, 0x01]
+
+        // Network layer: CTL=1 (control message), TTL=0 (not relayed)
+        let ivi = UInt8(ivIndex & 0x01)
+        let nidByte = (ivi << 7) | (nid & 0x7F)
+        let ctlTtl: UInt8 = (1 << 7) | (0 & 0x7F)  // CTL=1, TTL=0
+
+        let netNonce = buildNetworkNonce(ctl: 1, ttl: 0, seq: seq, src: src, ivIndex: ivIndex)
+
+        var dstTransport: [UInt8] = [
+            UInt8((dst >> 8) & 0xFF),
+            UInt8(dst & 0xFF)
+        ]
+        dstTransport.append(contentsOf: lowerTransportPDU)
+
+        // CTL=1 → 8-byte NetMIC (64-bit)
+        guard let encryptedNet = aes_ccm_encrypt(
+            key: encKey,
+            nonce: netNonce,
+            plaintext: dstTransport,
+            micSize: 8
+        ) else {
+            print("MeshCrypto: Failed to encrypt proxy filter config")
+            return nil
+        }
+
+        let obfuscatedHeader = obfuscate(
+            ctlTtl: ctlTtl, seq: seq, src: src,
+            encryptedPayload: Array(encryptedNet),
+            privacyKey: privKey, ivIndex: ivIndex
+        )
+
+        var networkPDU: [UInt8] = [nidByte]
+        networkPDU.append(contentsOf: obfuscatedHeader)
+        networkPDU.append(contentsOf: encryptedNet)
+
+        // Proxy PDU: SAR=complete (0x00), Type=0x02 (Proxy Configuration) → header = 0x02
+        var proxyPDU: [UInt8] = [0x02]
+        proxyPDU.append(contentsOf: networkPDU)
+
+        print("MeshCrypto: Proxy Filter Setup PDU (\(proxyPDU.count) bytes): \(proxyPDU.map { String(format: "%02X", $0) }.joined(separator: " "))")
+        return Data(proxyPDU)
     }
 
     // MARK: - Beacon Parsing
@@ -614,13 +674,10 @@ class MeshCrypto {
 
     // MARK: - Obfuscation
 
-    private static func obfuscate(ctlTtl: UInt8, seq: UInt32, src: UInt16, encDst: [UInt8], privacyKey: [UInt8], ivIndex: UInt32) -> [UInt8] {
-        // Privacy Random = EncDST[0:5] || Encrypted Transport PDU[0]
-        // Since we only have 2 bytes of encDst, pad with zeros
-        var privacyRandom = encDst
-        while privacyRandom.count < 7 {
-            privacyRandom.append(0x00)
-        }
+    private static func obfuscate(ctlTtl: UInt8, seq: UInt32, src: UInt16, encryptedPayload: [UInt8], privacyKey: [UInt8], ivIndex: UInt32) -> [UInt8] {
+        // Privacy Random = first 7 bytes of the encrypted network payload
+        // (EncDST + EncTransportPDU + NetMIC, bytes 7-13 of the Network PDU)
+        let privacyRandom = Array(encryptedPayload.prefix(7))
 
         // PECB = AES(PrivacyKey, 0x0000000000 || IV Index || Privacy Random)
         var pecbInput: [UInt8] = [0x00, 0x00, 0x00, 0x00, 0x00]

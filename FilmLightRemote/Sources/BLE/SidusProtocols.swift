@@ -208,29 +208,42 @@ struct HSIProtocol: SidusProtocol {
     }
 }
 
-// MARK: - On/Off Protocol
+// MARK: - Sleep Protocol (Command Type = 12) — Power On/Off
 
-/// Simple power on/off command
-struct OnOffProtocol: SidusProtocol {
-    let commandType: UInt8 = 0
+/// Power on/off via sleep mode command, matching Sidus Link's SleepProtocol
+/// commandType=12: sleepMode=1 → ON (awake), sleepMode=0 → OFF (sleep)
+struct SleepProtocol: SidusProtocol {
+    let commandType: UInt8 = 12
 
-    var isOn: Bool
+    var sleepMode: Int  // 0 = off/sleep, 1 = on/awake
 
     init(on: Bool) {
-        self.isOn = on
+        self.sleepMode = on ? 1 : 0
     }
 
     func getSendData() -> Data {
-        // On/Off uses a simplified format
-        var bytes = Data(count: 10)
-        bytes[9] = isOn ? 0x01 : 0x00
-        // Calculate checksum
-        var checksum: UInt8 = 0
-        for i in 1..<10 {
-            checksum = checksum &+ bytes[i]
+        var bits = [String]()
+
+        bits.append(toBinary(0, width: 8))                // Reserved
+        bits.append(toBinary(sleepMode, width: 1))         // Sleep mode (0=off, 1=on)
+        bits.append(toBinary(0, width: 20))                // Reserved
+        bits.append(toBinary(0, width: 12))                // Reserved
+        bits.append(toBinary(0, width: 1))                 // autoPatchFlag
+        bits.append(toBinary(0, width: 1))                 // CCT high flag
+        bits.append(toBinary(0, width: 1))                 // GM flag
+        bits.append(toBinary(0, width: 1))                 // GM high
+        bits.append(toBinary(0, width: 7))                 // GM value
+        bits.append(toBinary(0, width: 10))                // CCT
+        bits.append(toBinary(0, width: 10))                // Intensity
+        bits.append(toBinary(Int(commandType), width: 7))  // Command type = 12
+        bits.append(toBinary(1, width: 1))                 // operaType = 1 (write)
+
+        var bitString = ""
+        for bit in bits {
+            bitString += String(bit.reversed())
         }
-        bytes[0] = checksum
-        return bytes
+
+        return to10ByteArray(bitString)
     }
 }
 
