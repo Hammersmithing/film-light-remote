@@ -33,10 +33,40 @@ struct LightControlView: View {
     }
 }
 
+// MARK: - Throttled Sender
+
+/// Throttles BLE command sends to avoid flooding the connection while dragging sliders.
+private class ThrottledSender {
+    private var lastSendTime: Date = .distantPast
+    private var pendingWork: DispatchWorkItem?
+    private let interval: TimeInterval
+
+    init(interval: TimeInterval = 0.1) {
+        self.interval = interval
+    }
+
+    func send(_ action: @escaping () -> Void) {
+        pendingWork?.cancel()
+        let now = Date()
+        if now.timeIntervalSince(lastSendTime) >= interval {
+            lastSendTime = now
+            action()
+        } else {
+            let work = DispatchWorkItem { [weak self] in
+                self?.lastSendTime = Date()
+                action()
+            }
+            pendingWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + interval, execute: work)
+        }
+    }
+}
+
 // MARK: - Power and Intensity Section
 struct PowerIntensitySection: View {
     @EnvironmentObject var bleManager: BLEManager
     @ObservedObject var lightState: LightState
+    private let throttle = ThrottledSender()
 
     var body: some View {
         VStack(spacing: 16) {
@@ -65,20 +95,21 @@ struct PowerIntensitySection: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
 
-                Slider(value: $lightState.intensity, in: 0...100, step: 1) { editing in
-                    if !editing {
-                        switch lightState.mode {
-                        case .hsi:
-                            lightState.hsiIntensity = lightState.intensity
-                            bleManager.setHSI(hue: Int(lightState.hue),
-                                            saturation: Int(lightState.saturation),
-                                            intensity: Int(lightState.intensity))
-                        default:
-                            bleManager.setIntensity(Int(lightState.intensity))
+                Slider(value: $lightState.intensity, in: 0...100, step: 1)
+                    .tint(.orange)
+                    .onChange(of: lightState.intensity) { _ in
+                        throttle.send { [bleManager, lightState] in
+                            switch lightState.mode {
+                            case .hsi:
+                                lightState.hsiIntensity = lightState.intensity
+                                bleManager.setHSI(hue: Int(lightState.hue),
+                                                saturation: Int(lightState.saturation),
+                                                intensity: Int(lightState.intensity))
+                            default:
+                                bleManager.setIntensity(Int(lightState.intensity))
+                            }
                         }
                     }
-                }
-                .tint(.orange)
             }
         }
         .padding()
@@ -106,6 +137,7 @@ struct ModePicker: View {
 struct CCTControls: View {
     @EnvironmentObject var bleManager: BLEManager
     @ObservedObject var lightState: LightState
+    private let throttle = ThrottledSender()
 
     var body: some View {
         VStack(spacing: 16) {
@@ -145,12 +177,13 @@ struct CCTControls: View {
                     .frame(height: 8)
                     .cornerRadius(4)
 
-                    Slider(value: $lightState.cctKelvin, in: 2700...6500, step: 100) { editing in
-                        if !editing {
-                            bleManager.setCCT(Int(lightState.cctKelvin))
+                    Slider(value: $lightState.cctKelvin, in: 2700...6500, step: 100)
+                        .tint(.clear)
+                        .onChange(of: lightState.cctKelvin) { _ in
+                            throttle.send { [bleManager, lightState] in
+                                bleManager.setCCT(Int(lightState.cctKelvin))
+                            }
                         }
-                    }
-                    .tint(.clear)
                 }
             }
 
@@ -190,6 +223,7 @@ struct CCTControls: View {
 struct HSIControls: View {
     @EnvironmentObject var bleManager: BLEManager
     @ObservedObject var lightState: LightState
+    private let throttle = ThrottledSender()
 
     var body: some View {
         VStack(spacing: 16) {
@@ -219,14 +253,15 @@ struct HSIControls: View {
                     .frame(height: 8)
                     .cornerRadius(4)
 
-                    Slider(value: $lightState.hue, in: 0...360, step: 1) { editing in
-                        if !editing {
-                            bleManager.setHSI(hue: Int(lightState.hue),
-                                            saturation: Int(lightState.saturation),
-                                            intensity: Int(lightState.hsiIntensity))
+                    Slider(value: $lightState.hue, in: 0...360, step: 1)
+                        .tint(.clear)
+                        .onChange(of: lightState.hue) { _ in
+                            throttle.send { [bleManager, lightState] in
+                                bleManager.setHSI(hue: Int(lightState.hue),
+                                                saturation: Int(lightState.saturation),
+                                                intensity: Int(lightState.hsiIntensity))
+                            }
                         }
-                    }
-                    .tint(.clear)
                 }
             }
 
@@ -242,13 +277,14 @@ struct HSIControls: View {
                         .monospacedDigit()
                 }
 
-                Slider(value: $lightState.saturation, in: 0...100, step: 1) { editing in
-                    if !editing {
-                        bleManager.setHSI(hue: Int(lightState.hue),
-                                        saturation: Int(lightState.saturation),
-                                        intensity: Int(lightState.hsiIntensity))
+                Slider(value: $lightState.saturation, in: 0...100, step: 1)
+                    .onChange(of: lightState.saturation) { _ in
+                        throttle.send { [bleManager, lightState] in
+                            bleManager.setHSI(hue: Int(lightState.hue),
+                                            saturation: Int(lightState.saturation),
+                                            intensity: Int(lightState.hsiIntensity))
+                        }
                     }
-                }
             }
         }
         .padding()
@@ -299,7 +335,8 @@ struct ColorSlider: View {
     let label: String
     @Binding var value: Double
     let color: Color
-    let onEditingChanged: () -> Void
+    let onChanged: () -> Void
+    private let throttle = ThrottledSender()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -313,12 +350,13 @@ struct ColorSlider: View {
                     .monospacedDigit()
             }
 
-            Slider(value: $value, in: 0...255, step: 1) { editing in
-                if !editing {
-                    onEditingChanged()
+            Slider(value: $value, in: 0...255, step: 1)
+                .tint(color)
+                .onChange(of: value) { _ in
+                    throttle.send {
+                        onChanged()
+                    }
                 }
-            }
-            .tint(color)
         }
     }
 }
@@ -327,6 +365,7 @@ struct ColorSlider: View {
 struct EffectsControls: View {
     @EnvironmentObject var bleManager: BLEManager
     @ObservedObject var lightState: LightState
+    private let throttle = ThrottledSender()
 
     let columns = [
         GridItem(.flexible()),
@@ -375,12 +414,13 @@ struct EffectsControls: View {
                             .monospacedDigit()
                     }
 
-                    Slider(value: $lightState.effectSpeed, in: 0...100, step: 1) { editing in
-                        if !editing {
-                            bleManager.setEffect(lightState.selectedEffect.rawValue,
-                                               speed: Int(lightState.effectSpeed))
+                    Slider(value: $lightState.effectSpeed, in: 0...100, step: 1)
+                        .onChange(of: lightState.effectSpeed) { _ in
+                            throttle.send { [bleManager, lightState] in
+                                bleManager.setEffect(lightState.selectedEffect.rawValue,
+                                                   speed: Int(lightState.effectSpeed))
+                            }
                         }
-                    }
                 }
             }
         }
