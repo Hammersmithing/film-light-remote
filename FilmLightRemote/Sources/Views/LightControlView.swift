@@ -33,8 +33,6 @@ struct LightControlView: View {
                 .allowsHitTesting(lightState.isOn)
                 .opacity(lightState.isOn ? 1.0 : 0.4)
 
-                // Presets
-                PresetsSection(lightState: lightState)
             }
             .padding()
         }
@@ -263,40 +261,10 @@ struct CCTControls: View {
                 }
             }
 
-            // Quick presets
-            HStack {
-                ForEach(cctPresets, id: \.self) { kelvin in
-                    Button {
-                        lightState.cctKelvin = Double(kelvin)
-                        bleManager.setCCT(kelvin)
-                    } label: {
-                        Text("\(kelvin)K")
-                            .font(.caption2)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(
-                                lightState.cctKelvin == Double(kelvin)
-                                    ? Color.accentColor
-                                    : Color(.systemGray5)
-                            )
-                            .foregroundColor(
-                                lightState.cctKelvin == Double(kelvin)
-                                    ? .white
-                                    : .primary
-                            )
-                            .cornerRadius(6)
-                    }
-                }
-            }
         }
         .padding()
         .background(Color(.systemGray6))
         .cornerRadius(12)
-    }
-
-    private var cctPresets: [Int] {
-        let all = [1800, 2700, 3200, 4300, 5600, 6500, 10000, 20000]
-        return all.filter { Double($0) >= cctRange.lowerBound && Double($0) <= cctRange.upperBound }
     }
 }
 
