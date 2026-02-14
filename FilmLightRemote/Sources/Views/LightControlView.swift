@@ -814,6 +814,34 @@ private struct FaultyBulbDetail: View {
                 .onChange(of: lightState.faultyBulbMax) { _ in syncEngineParams() }
             }
 
+            // Level slider — shifts the entire range up/down keeping the spread
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Level")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text("\(Int(lightState.faultyBulbMin))% – \(Int(lightState.faultyBulbMax))%")
+                        .font(.caption)
+                        .monospacedDigit()
+                }
+
+                Slider(
+                    value: Binding(
+                        get: { lightState.faultyBulbMin },
+                        set: { newLow in
+                            let spread = lightState.faultyBulbMax - lightState.faultyBulbMin
+                            let clamped = min(newLow, 100 - spread)
+                            lightState.faultyBulbMin = max(0, clamped)
+                            lightState.faultyBulbMax = lightState.faultyBulbMin + spread
+                            syncEngineParams()
+                        }
+                    ),
+                    in: 0...100,
+                    step: 1
+                )
+            }
+
             // Points slider
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
