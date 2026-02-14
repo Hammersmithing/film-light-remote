@@ -602,6 +602,21 @@ private struct FaultyBulbDetail: View {
 
     var body: some View {
         VStack(spacing: 12) {
+            // Fault bias slider
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Fault")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text(Int(lightState.faultyBulbBias) == 0 ? "None" : "\(Int(lightState.faultyBulbBias))")
+                        .font(.caption)
+                        .monospacedDigit()
+                }
+
+                Slider(value: $lightState.faultyBulbBias, in: 0...10, step: 1)
+            }
+
             // Range slider
             VStack(alignment: .leading, spacing: 4) {
                 HStack {

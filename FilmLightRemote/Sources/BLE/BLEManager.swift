@@ -1253,16 +1253,46 @@ class FaultyBulbEngine {
         DispatchQueue.main.asyncAfter(deadline: .now() + interval, execute: work)
     }
 
-    /// Fire one flicker event: pick a new point and go there (snap or fade)
+    /// Fire one flicker event: pick a new point and go there (snap or fade).
+    /// The fault bias slider is the primary control — it decides whether the
+    /// bulb dips at all and overrides all other point-selection rules.
     private func fireEvent() {
         guard let ls = lightState else { return }
 
         let points = discretePoints()
-        var target = points.randomElement() ?? ls.faultyBulbMin
-        if points.count > 1 {
-            while abs(target - currentIntensity) < 0.5 {
-                target = points.randomElement() ?? ls.faultyBulbMin
+        let hi = points.last ?? 50.0
+        let bias = ls.faultyBulbBias / 10.0 // 0.0 – 1.0
+
+        // Bias 0 = not faulty at all → always stay at the highest point
+        if bias <= 0 {
+            if abs(currentIntensity - hi) > 0.5 {
+                currentIntensity = hi
+                bleManager?.setIntensityWithSleep(hi, sleepMode: 1)
             }
+            scheduleNextEvent()
+            return
+        }
+
+        let target: Double
+
+        // Are we currently on the high point?
+        let onHigh = abs(currentIntensity - hi) < 0.5
+
+        if onHigh {
+            // Decide whether to dip. Bias controls the probability of dipping.
+            // bias=0.1 → 10% chance to dip, bias=1.0 → 100% chance to dip
+            if Double.random(in: 0...1) < bias {
+                // Dip to a lower point
+                let lowerPoints = points.filter { $0 < hi - 0.5 }
+                target = lowerPoints.randomElement() ?? hi
+            } else {
+                // Stay high — no flicker this cycle
+                scheduleNextEvent()
+                return
+            }
+        } else {
+            // We're on a low point — always return to high
+            target = hi
         }
 
         let transition = ls.faultyBulbTransition
