@@ -1399,7 +1399,7 @@ class FaultyBulbEngine {
 
         let lo = min(minIntensity, maxIntensity)
 
-        if transitionValue < 0.5 {
+        if transitionValue < 0.005 {
             // Instant snap — use sleepMode toggling for hard cut.
             // Going to the lowest point: sleep=0 (instant off).
             // Going to any higher point: sleep=1 (on) with that intensity.
@@ -1411,10 +1411,9 @@ class FaultyBulbEngine {
             }
             scheduleNextEvent()
         } else {
-            // Fade to target over transition duration, then schedule next
-            let fadeDuration = transitionValue * 0.13 // 1 → 0.13s, 15 → 1.95s
-            let stepInterval: Double = 0.08
-            let totalSteps = max(1, Int(fadeDuration / stepInterval))
+            // Fade to target over transition duration (value is already in seconds)
+            let stepInterval: Double = 0.02
+            let totalSteps = max(1, Int(transitionValue / stepInterval))
             fadeToTarget(target: target, stepsRemaining: totalSteps, stepInterval: stepInterval)
         }
     }

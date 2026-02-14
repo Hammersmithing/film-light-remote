@@ -790,19 +790,19 @@ private struct FaultyBulbDetail: View {
                     .onChange(of: lightState.faultyBulbPoints) { _ in syncEngineParams() }
             }
 
-            // Transition slider: instant click ↔ slow fade
+            // Transition slider: instant ↔ 0.20s fade
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text("Transition")
                         .font(.caption)
                         .foregroundColor(.secondary)
                     Spacer()
-                    Text(lightState.faultyBulbTransition < 0.5 ? "Instant" : String(format: "%.1fs", lightState.faultyBulbTransition * 0.13))
+                    Text(lightState.faultyBulbTransition < 0.005 ? "Instant" : String(format: "%.2fs", lightState.faultyBulbTransition))
                         .font(.caption)
                         .monospacedDigit()
                 }
 
-                Slider(value: $lightState.faultyBulbTransition, in: 0...15, step: 1)
+                Slider(value: $lightState.faultyBulbTransition, in: 0...0.20, step: 0.01)
                     .onChange(of: lightState.faultyBulbTransition) { _ in syncEngineParams() }
             }
 

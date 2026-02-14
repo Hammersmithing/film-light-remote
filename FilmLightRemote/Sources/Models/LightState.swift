@@ -116,7 +116,7 @@ class LightState: ObservableObject {
     @Published var copCarColor: Int = 0 // 0=Red, 1=Blue, 2=R+B, 3=B+W, 4=R+B+W
     @Published var faultyBulbMin: Double = 20.0 // 0-100%
     @Published var faultyBulbMax: Double = 100.0 // 0-100%
-    @Published var faultyBulbTransition: Double = 0.0 // 0=instant click, 15=slow fade
+    @Published var faultyBulbTransition: Double = 0.0 // 0=instant, 0.01-0.20=fade in seconds
     @Published var faultyBulbPoints: Double = 2.0 // 2-5 discrete intensity levels
     @Published var faultyBulbFrequency: Double = 5.0 // 1-9 fixed, 10 = random
     @Published var faultyBulbBias: Double = 100.0 // 0 = not faulty, 100 = fully faulty (log scaled)
