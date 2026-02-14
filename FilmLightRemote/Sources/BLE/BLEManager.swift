@@ -703,7 +703,8 @@ class BLEManager: NSObject, ObservableObject {
         let deviceAddress = targetUnicastAddress
 
         guard let deviceKey = storage.getDeviceKey(forAddress: deviceAddress) else {
-            log("No device key for address 0x\(String(format: "%04X", deviceAddress)) — skipping config")
+            log("No device key for address 0x\(String(format: "%04X", deviceAddress)) — skipping config, marking ready")
+            connectionState = .ready
             return
         }
 
@@ -719,10 +720,10 @@ class BLEManager: NSObject, ObservableObject {
         ) { [weak self] success in
             if success {
                 self?.log("Config complete — light should now respond to commands!")
-                self?.connectionState = .ready
             } else {
                 self?.log("Config failed — commands may not work")
             }
+            self?.connectionState = .ready
         }
     }
 
@@ -1065,8 +1066,8 @@ extension BLEManager: CBPeripheralDelegate {
 
             log("Connected and ready")
 
-            // Log characteristics summary after a short delay to let all services complete
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            // Configure proxy filter and run post-provisioning config if needed
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                 guard let self = self else { return }
                 self.log("=== Control Characteristics Found ===")
                 self.log("  meshProxyIn (2ADD): \(self.meshProxyIn != nil ? "YES" : "NO")")
@@ -1078,9 +1079,18 @@ extension BLEManager: CBPeripheralDelegate {
                 if let proxyIn = self.meshProxyIn {
                     self.sendProxyFilterSetup(proxyIn: proxyIn)
 
-                    // Run post-provisioning config after short delay for filter to take effect
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        self.runPostProvisioningConfig(proxyIn: proxyIn)
+                    // For saved lights, config was already done during provisioning — go straight to ready
+                    let isSavedLight = KeyStorage.shared.savedLights.contains(where: { $0.unicastAddress == self.targetUnicastAddress })
+                    if isSavedLight {
+                        self.log("Saved light — skipping post-provisioning config")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                            self.connectionState = .ready
+                        }
+                    } else {
+                        // Run post-provisioning config after short delay for filter to take effect
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            self.runPostProvisioningConfig(proxyIn: proxyIn)
+                        }
                     }
                 }
             }

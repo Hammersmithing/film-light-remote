@@ -50,6 +50,12 @@ struct MyLightsView: View {
             .fullScreenCover(item: $selectedLight) { light in
                 LightSessionView(savedLight: light)
             }
+            .onChange(of: selectedLight) { light in
+                // When returning from a light session, refresh power states
+                if light == nil {
+                    reloadPowerStates()
+                }
+            }
             .onAppear {
                 reloadLights()
             }
@@ -152,13 +158,14 @@ struct MyLightsView: View {
 
     private func reloadLights() {
         savedLights = KeyStorage.shared.savedLights
-        // Load saved power states
+        reloadPowerStates()
+    }
+
+    private func reloadPowerStates() {
         for light in savedLights {
-            if powerStates[light.id] == nil {
-                let state = LightState()
-                state.load(forLightId: light.id)
-                powerStates[light.id] = state.isOn
-            }
+            let state = LightState()
+            state.load(forLightId: light.id)
+            powerStates[light.id] = state.isOn
         }
     }
 
@@ -179,10 +186,19 @@ struct MyLightsView: View {
             bleManager.setPowerOn(newState)
             bleManager.targetUnicastAddress = previousTarget
         } else {
-            // Need to connect first
+            // Need to connect first — update pending state (connection may already be in progress)
             pendingPowerToggle = light
             bleManager.targetUnicastAddress = light.unicastAddress
-            bleManager.connectToKnownPeripheral(identifier: light.peripheralIdentifier)
+            // Only start a new connection if not already connecting
+            let shouldConnect: Bool = {
+                switch bleManager.connectionState {
+                case .disconnected, .failed: return true
+                default: return false
+                }
+            }()
+            if shouldConnect {
+                bleManager.connectToKnownPeripheral(identifier: light.peripheralIdentifier)
+            }
         }
     }
 }
