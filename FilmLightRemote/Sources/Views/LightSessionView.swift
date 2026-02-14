@@ -26,7 +26,10 @@ struct LightSessionView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Close") {
-                        bleManager.disconnect()
+                        // If a background engine is running, keep the BLE connection alive
+                        if !bleManager.hasActiveEngine {
+                            bleManager.disconnect()
+                        }
                         dismiss()
                     }
                 }
@@ -34,15 +37,24 @@ struct LightSessionView: View {
         }
         .onAppear {
             lightState.load(forLightId: savedLight.id)
+            // If the engine is already running for this light, reflect that in the UI
+            if bleManager.faultyBulbEngine?.targetAddress == savedLight.unicastAddress {
+                lightState.mode = .effects
+                lightState.selectedEffect = .faultyBulb
+                lightState.effectPlaying = true
+            }
             bleManager.syncState(from: lightState)
             bleManager.targetUnicastAddress = savedLight.unicastAddress
             bleManager.connectToKnownPeripheral(identifier: savedLight.peripheralIdentifier)
         }
         .onReceive(bleManager.$connectionState) { state in
             if state == .ready {
-                // Restart faulty bulb engine if it was actively playing
+                // Restart faulty bulb engine if it was actively playing,
+                // but skip if already running for this light (e.g. reopening session)
                 if lightState.mode == .effects && lightState.selectedEffect == .faultyBulb && lightState.effectPlaying {
-                    bleManager.startFaultyBulb(lightState: lightState)
+                    if bleManager.faultyBulbEngine?.targetAddress != savedLight.unicastAddress {
+                        bleManager.startFaultyBulb(lightState: lightState)
+                    }
                 }
             }
         }

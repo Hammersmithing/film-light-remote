@@ -190,6 +190,19 @@ class BLEManager: NSObject, ObservableObject {
             return
         }
 
+        // If already connected to this peripheral (e.g. effect running in background), reuse
+        if let existing = connectedPeripheral, existing.identifier == identifier,
+           meshProxyIn != nil {
+            log("Already connected to \(existing.name ?? identifier.uuidString) — reusing")
+            connectionState = .ready
+            return
+        }
+
+        // If connecting to a different peripheral while engine is running, stop engine
+        if hasActiveEngine, connectedPeripheral?.identifier != identifier {
+            stopFaultyBulb()
+        }
+
         let peripherals = centralManager.retrievePeripherals(withIdentifiers: [identifier])
         if let peripheral = peripherals.first {
             log("Retrieved known peripheral \(peripheral.name ?? identifier.uuidString)")
@@ -342,8 +355,10 @@ class BLEManager: NSObject, ObservableObject {
 
     /// Set CCT with explicit values and sleepMode control for instant on/off transitions.
     /// sleepMode=0 puts the light to sleep (instant off), sleepMode=1 wakes it (on).
-    func setCCTWithSleep(intensity percent: Double, cctKelvin: Int, sleepMode: Int) {
+    /// Pass targetAddress to override the default targetUnicastAddress (used by background engines).
+    func setCCTWithSleep(intensity percent: Double, cctKelvin: Int, sleepMode: Int, targetAddress: UInt16? = nil) {
         guard let peripheral = connectedPeripheral else { return }
+        let dst = targetAddress ?? targetUnicastAddress
 
         let cmd = CCTProtocol(
             intensity: Int(round(percent * 10)),
@@ -360,7 +375,7 @@ class BLEManager: NSObject, ObservableObject {
         if let char = meshProxyIn {
             if let meshPDU = MeshCrypto.createStandardMeshPDU(
                 accessMessage: accessMessage,
-                dst: targetUnicastAddress
+                dst: dst
             ) {
                 peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
             }
@@ -368,8 +383,10 @@ class BLEManager: NSObject, ObservableObject {
     }
 
     /// Set HSI with explicit values and sleepMode control for instant on/off transitions.
-    func setHSIWithSleep(intensity percent: Double, hue: Int, saturation: Int, cctKelvin: Int = 5600, sleepMode: Int) {
+    /// Pass targetAddress to override the default targetUnicastAddress (used by background engines).
+    func setHSIWithSleep(intensity percent: Double, hue: Int, saturation: Int, cctKelvin: Int = 5600, sleepMode: Int, targetAddress: UInt16? = nil) {
         guard let peripheral = connectedPeripheral else { return }
+        let dst = targetAddress ?? targetUnicastAddress
 
         let cmd = HSIProtocol(
             intensity: Int(round(percent * 10)),
@@ -388,7 +405,7 @@ class BLEManager: NSObject, ObservableObject {
         if let char = meshProxyIn {
             if let meshPDU = MeshCrypto.createStandardMeshPDU(
                 accessMessage: accessMessage,
-                dst: targetUnicastAddress
+                dst: dst
             ) {
                 peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
             }
@@ -553,15 +570,18 @@ class BLEManager: NSObject, ObservableObject {
 
     // MARK: - Faulty Bulb Software Engine
 
-    private var faultyBulbEngine: FaultyBulbEngine?
+    private(set) var faultyBulbEngine: FaultyBulbEngine?
+
+    /// Whether a background faulty bulb engine is actively running
+    var hasActiveEngine: Bool { faultyBulbEngine != nil }
 
     /// Start the software-driven faulty bulb effect. Survives view lifecycle changes.
     func startFaultyBulb(lightState: LightState) {
         stopFaultyBulb()
         let engine = FaultyBulbEngine()
         faultyBulbEngine = engine
-        engine.start(bleManager: self, lightState: lightState)
-        log("Faulty bulb engine started")
+        engine.start(bleManager: self, lightState: lightState, targetAddress: targetUnicastAddress)
+        log("Faulty bulb engine started for 0x\(String(format: "%04X", targetUnicastAddress))")
     }
 
     /// Stop the software-driven faulty bulb effect.
@@ -711,7 +731,6 @@ class BLEManager: NSObject, ObservableObject {
     // MARK: - Private Methods
 
     private func cleanup() {
-        stopFaultyBulb()
         stopStatePolling()
         connectedPeripheral = nil
         connectedLight = nil
@@ -922,6 +941,7 @@ extension BLEManager: CBCentralManagerDelegate {
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         log("Disconnected from \(peripheral.name ?? "Unknown")")
+        stopFaultyBulb() // Engine can no longer send — stop it
         cleanup()
     }
 }
@@ -1223,20 +1243,35 @@ extension Data {
 // MARK: - Faulty Bulb Software Engine
 /// Sends random intensity values within a range at irregular intervals,
 /// simulating a realistic faulty/flickering bulb effect.
-/// Lives on BLEManager so it survives view lifecycle changes.
+/// Self-contained: stores its own copies of all parameters and target address
+/// so it keeps running even after the light session view is dismissed.
 class FaultyBulbEngine {
     private var workItem: DispatchWorkItem?
-    private weak var bleManager: BLEManager?
-    private weak var lightState: LightState?
+    private var bleManager: BLEManager? // Strong ref — engine outlives the view
     private var currentIntensity: Double = 50.0
     /// Dedicated background queue so the engine keeps running when the app is backgrounded
     private let queue = DispatchQueue(label: "com.filmlightremote.faultybulb", qos: .userInitiated)
 
-    func start(bleManager: BLEManager, lightState: LightState) {
+    // Stored parameters — engine is self-contained, does not depend on LightState
+    private(set) var targetAddress: UInt16 = 0x0002
+    private var colorMode: LightMode = .cct
+    private var cctKelvin: Int = 5600
+    private var hue: Int = 0
+    private var saturation: Int = 100
+    private var hsiCCT: Int = 5600
+    private var minIntensity: Double = 20.0
+    private var maxIntensity: Double = 100.0
+    private var biasValue: Double = 100.0
+    private var pointCount: Int = 2
+    private var transitionValue: Double = 0.0
+    private var frequencyValue: Double = 5.0
+
+    func start(bleManager: BLEManager, lightState: LightState, targetAddress: UInt16) {
         stop()
         self.bleManager = bleManager
-        self.lightState = lightState
+        self.targetAddress = targetAddress
         self.currentIntensity = lightState.intensity
+        updateParams(from: lightState)
         fireEvent()
     }
 
@@ -1244,36 +1279,50 @@ class FaultyBulbEngine {
         workItem?.cancel()
         workItem = nil
         bleManager = nil
-        lightState = nil
     }
 
-    /// Send intensity via CCT or HSI depending on faulty bulb color mode.
-    /// Reads all color values directly from lightState so they're always current.
+    /// Update stored parameters from lightState (called when user adjusts sliders while view is open)
+    func updateParams(from lightState: LightState) {
+        colorMode = lightState.faultyBulbColorMode
+        cctKelvin = Int(lightState.cctKelvin)
+        hue = Int(lightState.hue)
+        saturation = Int(lightState.saturation)
+        hsiCCT = Int(lightState.hsiCCT)
+        minIntensity = lightState.faultyBulbMin
+        maxIntensity = lightState.faultyBulbMax
+        biasValue = lightState.faultyBulbBias
+        pointCount = Int(lightState.faultyBulbPoints)
+        transitionValue = lightState.faultyBulbTransition
+        frequencyValue = lightState.faultyBulbFrequency
+    }
+
+    /// Send intensity via CCT or HSI depending on color mode, using stored target address
     private func sendIntensity(_ percent: Double, sleepMode: Int) {
-        guard let ls = lightState, let mgr = bleManager else { return }
-        if ls.faultyBulbColorMode == .hsi {
+        guard let mgr = bleManager else { return }
+        if colorMode == .hsi {
             mgr.setHSIWithSleep(
                 intensity: percent,
-                hue: Int(ls.hue),
-                saturation: Int(ls.saturation),
-                cctKelvin: Int(ls.hsiCCT),
-                sleepMode: sleepMode
+                hue: hue,
+                saturation: saturation,
+                cctKelvin: hsiCCT,
+                sleepMode: sleepMode,
+                targetAddress: targetAddress
             )
         } else {
             mgr.setCCTWithSleep(
                 intensity: percent,
-                cctKelvin: Int(ls.cctKelvin),
-                sleepMode: sleepMode
+                cctKelvin: cctKelvin,
+                sleepMode: sleepMode,
+                targetAddress: targetAddress
             )
         }
     }
 
     /// Build the discrete intensity levels from the range and point count
     private func discretePoints() -> [Double] {
-        guard let ls = lightState else { return [50] }
-        let lo = min(ls.faultyBulbMin, ls.faultyBulbMax)
-        let hi = max(ls.faultyBulbMin, ls.faultyBulbMax)
-        let n = max(2, Int(ls.faultyBulbPoints))
+        let lo = min(minIntensity, maxIntensity)
+        let hi = max(minIntensity, maxIntensity)
+        let n = max(2, pointCount)
         if n <= 1 || lo == hi { return [lo] }
         return (0..<n).map { i in
             lo + (hi - lo) * Double(i) / Double(n - 1)
@@ -1282,9 +1331,9 @@ class FaultyBulbEngine {
 
     /// The main loop: wait for the frequency interval, then fire an event
     private func scheduleNextEvent() {
-        guard let ls = lightState else { return }
+        guard bleManager != nil else { return }
 
-        let freq = Int(ls.faultyBulbFrequency)
+        let freq = Int(frequencyValue)
         let interval: Double
 
         if freq >= 10 {
@@ -1307,14 +1356,14 @@ class FaultyBulbEngine {
     /// The fault bias slider is the primary control — it decides whether the
     /// bulb dips at all and overrides all other point-selection rules.
     private func fireEvent() {
-        guard let ls = lightState else { return }
+        guard bleManager != nil else { return }
 
         let points = discretePoints()
         let hi = points.last ?? 50.0
         // Log-scaled: slider 0-100 → effective probability 0-1.0
         // pow(x, 2.5) gives fine control at low values:
         // slider 5 → 0.006, slider 15 → 0.009, slider 30 → 0.05, slider 50 → 0.18, slider 100 → 1.0
-        let bias = pow(ls.faultyBulbBias / 100.0, 2.5)
+        let bias = pow(biasValue / 100.0, 2.5)
 
         // Bias 0 = not faulty at all → always stay at the highest point
         if bias <= 0 {
@@ -1348,10 +1397,9 @@ class FaultyBulbEngine {
             target = hi
         }
 
-        let transition = ls.faultyBulbTransition
-        let lo = min(ls.faultyBulbMin, ls.faultyBulbMax)
+        let lo = min(minIntensity, maxIntensity)
 
-        if transition < 0.5 {
+        if transitionValue < 0.5 {
             // Instant snap — use sleepMode toggling for hard cut.
             // Going to the lowest point: sleep=0 (instant off).
             // Going to any higher point: sleep=1 (on) with that intensity.
@@ -1364,7 +1412,7 @@ class FaultyBulbEngine {
             scheduleNextEvent()
         } else {
             // Fade to target over transition duration, then schedule next
-            let fadeDuration = transition * 0.13 // 1 → 0.13s, 15 → 1.95s
+            let fadeDuration = transitionValue * 0.13 // 1 → 0.13s, 15 → 1.95s
             let stepInterval: Double = 0.08
             let totalSteps = max(1, Int(fadeDuration / stepInterval))
             fadeToTarget(target: target, stepsRemaining: totalSteps, stepInterval: stepInterval)

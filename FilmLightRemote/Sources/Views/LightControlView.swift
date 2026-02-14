@@ -751,6 +751,7 @@ private struct FaultyBulbDetail: View {
                 }
 
                 Slider(value: $lightState.faultyBulbBias, in: 0...100, step: 1)
+                    .onChange(of: lightState.faultyBulbBias) { _ in syncEngineParams() }
             }
 
             // Range slider
@@ -769,6 +770,8 @@ private struct FaultyBulbDetail: View {
                     low: $lightState.faultyBulbMin,
                     high: $lightState.faultyBulbMax
                 )
+                .onChange(of: lightState.faultyBulbMin) { _ in syncEngineParams() }
+                .onChange(of: lightState.faultyBulbMax) { _ in syncEngineParams() }
             }
 
             // Points slider
@@ -784,6 +787,7 @@ private struct FaultyBulbDetail: View {
                 }
 
                 Slider(value: $lightState.faultyBulbPoints, in: 2...5, step: 1)
+                    .onChange(of: lightState.faultyBulbPoints) { _ in syncEngineParams() }
             }
 
             // Transition slider: instant click ↔ slow fade
@@ -799,6 +803,7 @@ private struct FaultyBulbDetail: View {
                 }
 
                 Slider(value: $lightState.faultyBulbTransition, in: 0...15, step: 1)
+                    .onChange(of: lightState.faultyBulbTransition) { _ in syncEngineParams() }
             }
 
             // Frequency selector: 1-9 + R
@@ -811,6 +816,7 @@ private struct FaultyBulbDetail: View {
                     ForEach(1...10, id: \.self) { val in
                         Button {
                             lightState.faultyBulbFrequency = Double(val)
+                            syncEngineParams()
                         } label: {
                             Text(val == 10 ? "R" : "\(val)")
                                 .font(.caption2)
@@ -835,9 +841,16 @@ private struct FaultyBulbDetail: View {
         }
     }
 
-    /// Immediately send the current color at the current intensity so slider changes are instant
+    /// Push current lightState params to the running engine
+    private func syncEngineParams() {
+        bleManager.faultyBulbEngine?.updateParams(from: lightState)
+    }
+
+    /// Immediately send the current color at the current intensity so slider changes are instant.
+    /// Also pushes updated params to the running engine.
     private func sendColorNow() {
         guard lightState.effectPlaying else { return }
+        bleManager.faultyBulbEngine?.updateParams(from: lightState)
         throttle.send { [bleManager, lightState] in
             let intensity = lightState.intensity
             if lightState.faultyBulbColorMode == .hsi {
