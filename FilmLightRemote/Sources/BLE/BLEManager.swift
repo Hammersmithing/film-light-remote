@@ -1252,13 +1252,24 @@ class FaultyBulbEngine {
         DispatchQueue.main.asyncAfter(deadline: .now() + stepInterval, execute: work)
     }
 
-    /// Wait a random interval then pick the next target
+    /// Wait an interval based on frequency then pick the next target
+    /// Frequency 1-9: fixed rate (1 = slow ~2s, 9 = fast ~0.08s), 10 = random
     private func scheduleNextTarget() {
         guard let ls = lightState else { return }
 
-        let speed = ls.effectFrequency
-        let baseInterval = max(0.06, 1.2 - speed * 0.08)
-        let interval = baseInterval * Double.random(in: 0.2...1.8)
+        let freq = Int(ls.faultyBulbFrequency)
+        let interval: Double
+
+        if freq >= 10 {
+            // Random: pick a completely random interval each time
+            interval = Double.random(in: 0.06...2.0)
+        } else {
+            // Fixed frequency 1-9: exponential curve from slow to fast
+            // 1 → ~2.0s, 5 → ~0.4s, 9 → ~0.08s
+            let base = 2.0 * pow(0.6, Double(freq - 1))
+            // Small jitter so it doesn't feel mechanical
+            interval = base * Double.random(in: 0.8...1.2)
+        }
 
         let work = DispatchWorkItem { [weak self] in
             self?.pickNewTarget()

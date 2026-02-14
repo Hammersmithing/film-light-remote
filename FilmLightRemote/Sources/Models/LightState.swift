@@ -117,6 +117,7 @@ class LightState: ObservableObject {
     @Published var faultyBulbMax: Double = 100.0 // 0-100%
     @Published var faultyBulbTransition: Double = 0.0 // 0=instant click, 15=slow fade
     @Published var faultyBulbPoints: Double = 2.0 // 2-5 discrete intensity levels
+    @Published var faultyBulbFrequency: Double = 5.0 // 1-9 fixed, 10 = random
 
     // MARK: - Computed Properties
 

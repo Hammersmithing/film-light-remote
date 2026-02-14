@@ -650,19 +650,36 @@ private struct FaultyBulbDetail: View {
                 Slider(value: $lightState.faultyBulbTransition, in: 0...15, step: 1)
             }
 
-            // Speed slider
+            // Frequency selector: 1-9 + R
             VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Speed")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Spacer()
-                    Text("\(Int(lightState.effectFrequency))")
-                        .font(.caption)
-                        .monospacedDigit()
-                }
+                Text("Frequency")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
 
-                Slider(value: $lightState.effectFrequency, in: 0...15, step: 1)
+                HStack(spacing: 4) {
+                    ForEach(1...10, id: \.self) { val in
+                        Button {
+                            lightState.faultyBulbFrequency = Double(val)
+                        } label: {
+                            Text(val == 10 ? "R" : "\(val)")
+                                .font(.caption2)
+                                .fontWeight(Int(lightState.faultyBulbFrequency) == val ? .bold : .regular)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 6)
+                                .background(
+                                    Int(lightState.faultyBulbFrequency) == val
+                                        ? Color.orange.opacity(0.3)
+                                        : Color(.systemGray4)
+                                )
+                                .foregroundColor(
+                                    Int(lightState.faultyBulbFrequency) == val
+                                        ? .orange
+                                        : .primary
+                                )
+                                .cornerRadius(4)
+                        }
+                    }
+                }
             }
         }
     }
