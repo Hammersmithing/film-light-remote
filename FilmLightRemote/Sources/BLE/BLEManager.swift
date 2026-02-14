@@ -1229,6 +1229,8 @@ class FaultyBulbEngine {
     private weak var bleManager: BLEManager?
     private weak var lightState: LightState?
     private var currentIntensity: Double = 50.0
+    /// Dedicated background queue so the engine keeps running when the app is backgrounded
+    private let queue = DispatchQueue(label: "com.filmlightremote.faultybulb", qos: .userInitiated)
 
     func start(bleManager: BLEManager, lightState: LightState) {
         stop()
@@ -1298,7 +1300,7 @@ class FaultyBulbEngine {
             self?.fireEvent()
         }
         workItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + interval, execute: work)
+        queue.asyncAfter(deadline: .now() + interval, execute: work)
     }
 
     /// Fire one flicker event: pick a new point and go there (snap or fade).
@@ -1383,6 +1385,6 @@ class FaultyBulbEngine {
             self?.fadeToTarget(target: target, stepsRemaining: stepsRemaining - 1, stepInterval: stepInterval)
         }
         workItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + stepInterval, execute: work)
+        queue.asyncAfter(deadline: .now() + stepInterval, execute: work)
     }
 }
