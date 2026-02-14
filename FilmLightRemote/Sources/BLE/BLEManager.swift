@@ -1311,7 +1311,10 @@ class FaultyBulbEngine {
 
         let points = discretePoints()
         let hi = points.last ?? 50.0
-        let bias = ls.faultyBulbBias / 10.0 // 0.0 – 1.0
+        // Log-scaled: slider 0-100 → effective probability 0-1.0
+        // pow(x, 2.5) gives fine control at low values:
+        // slider 5 → 0.006, slider 15 → 0.009, slider 30 → 0.05, slider 50 → 0.18, slider 100 → 1.0
+        let bias = pow(ls.faultyBulbBias / 100.0, 2.5)
 
         // Bias 0 = not faulty at all → always stay at the highest point
         if bias <= 0 {

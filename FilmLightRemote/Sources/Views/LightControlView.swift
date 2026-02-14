@@ -738,7 +738,7 @@ private struct FaultyBulbDetail: View {
                 }
             }
 
-            // Fault bias slider
+            // Fault bias slider (log-scaled: fine control at low values)
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text("Fault")
@@ -750,7 +750,7 @@ private struct FaultyBulbDetail: View {
                         .monospacedDigit()
                 }
 
-                Slider(value: $lightState.faultyBulbBias, in: 0...10, step: 1)
+                Slider(value: $lightState.faultyBulbBias, in: 0...100, step: 1)
             }
 
             // Range slider

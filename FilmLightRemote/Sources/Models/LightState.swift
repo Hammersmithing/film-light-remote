@@ -119,7 +119,7 @@ class LightState: ObservableObject {
     @Published var faultyBulbTransition: Double = 0.0 // 0=instant click, 15=slow fade
     @Published var faultyBulbPoints: Double = 2.0 // 2-5 discrete intensity levels
     @Published var faultyBulbFrequency: Double = 5.0 // 1-9 fixed, 10 = random
-    @Published var faultyBulbBias: Double = 10.0 // 0 = not faulty, 10 = fully faulty
+    @Published var faultyBulbBias: Double = 100.0 // 0 = not faulty, 100 = fully faulty (log scaled)
     @Published var faultyBulbColorMode: LightMode = .cct // .cct or .hsi for flicker color
 
     // MARK: - Computed Properties
