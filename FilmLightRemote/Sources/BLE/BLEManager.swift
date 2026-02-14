@@ -340,15 +340,42 @@ class BLEManager: NSObject, ObservableObject {
         }
     }
 
-    /// Set intensity with explicit sleepMode control for instant on/off transitions.
+    /// Set CCT with explicit values and sleepMode control for instant on/off transitions.
     /// sleepMode=0 puts the light to sleep (instant off), sleepMode=1 wakes it (on).
-    func setIntensityWithSleep(_ percent: Double, sleepMode: Int) {
-        currentIntensity = Int(percent)
+    func setCCTWithSleep(intensity percent: Double, cctKelvin: Int, sleepMode: Int) {
         guard let peripheral = connectedPeripheral else { return }
 
         let cmd = CCTProtocol(
             intensity: Int(round(percent * 10)),
-            cct: currentCCT / 10,
+            cct: cctKelvin / 10,
+            gm: 100,
+            gmFlag: 0,
+            sleepMode: sleepMode,
+            autoPatchFlag: 0
+        )
+        let payload = cmd.getSendData()
+        var accessMessage: [UInt8] = [0x26]
+        accessMessage.append(contentsOf: payload)
+
+        if let char = meshProxyIn {
+            if let meshPDU = MeshCrypto.createStandardMeshPDU(
+                accessMessage: accessMessage,
+                dst: targetUnicastAddress
+            ) {
+                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
+            }
+        }
+    }
+
+    /// Set HSI with explicit values and sleepMode control for instant on/off transitions.
+    func setHSIWithSleep(intensity percent: Double, hue: Int, saturation: Int, cctKelvin: Int = 5600, sleepMode: Int) {
+        guard let peripheral = connectedPeripheral else { return }
+
+        let cmd = HSIProtocol(
+            intensity: Int(round(percent * 10)),
+            hue: hue,
+            sat: saturation,
+            cct: cctKelvin / 50,
             gm: 100,
             gmFlag: 0,
             sleepMode: sleepMode,
@@ -1218,6 +1245,27 @@ class FaultyBulbEngine {
         lightState = nil
     }
 
+    /// Send intensity via CCT or HSI depending on faulty bulb color mode.
+    /// Reads all color values directly from lightState so they're always current.
+    private func sendIntensity(_ percent: Double, sleepMode: Int) {
+        guard let ls = lightState, let mgr = bleManager else { return }
+        if ls.faultyBulbColorMode == .hsi {
+            mgr.setHSIWithSleep(
+                intensity: percent,
+                hue: Int(ls.hue),
+                saturation: Int(ls.saturation),
+                cctKelvin: Int(ls.hsiCCT),
+                sleepMode: sleepMode
+            )
+        } else {
+            mgr.setCCTWithSleep(
+                intensity: percent,
+                cctKelvin: Int(ls.cctKelvin),
+                sleepMode: sleepMode
+            )
+        }
+    }
+
     /// Build the discrete intensity levels from the range and point count
     private func discretePoints() -> [Double] {
         guard let ls = lightState else { return [50] }
@@ -1267,7 +1315,7 @@ class FaultyBulbEngine {
         if bias <= 0 {
             if abs(currentIntensity - hi) > 0.5 {
                 currentIntensity = hi
-                bleManager?.setIntensityWithSleep(hi, sleepMode: 1)
+                sendIntensity(hi, sleepMode: 1)
             }
             scheduleNextEvent()
             return
@@ -1304,9 +1352,9 @@ class FaultyBulbEngine {
             // Going to any higher point: sleep=1 (on) with that intensity.
             currentIntensity = target
             if target <= lo && lo < 1.0 {
-                bleManager?.setIntensityWithSleep(0, sleepMode: 0)
+                sendIntensity(0, sleepMode: 0)
             } else {
-                bleManager?.setIntensityWithSleep(target, sleepMode: 1)
+                sendIntensity(target, sleepMode: 1)
             }
             scheduleNextEvent()
         } else {
@@ -1322,14 +1370,14 @@ class FaultyBulbEngine {
     private func fadeToTarget(target: Double, stepsRemaining: Int, stepInterval: Double) {
         guard stepsRemaining > 0 else {
             currentIntensity = target
-            bleManager?.setIntensity(target)
+            sendIntensity(target, sleepMode: 1)
             scheduleNextEvent()
             return
         }
 
         let interpolated = currentIntensity + (target - currentIntensity) / Double(stepsRemaining)
         currentIntensity = interpolated
-        bleManager?.setIntensity(interpolated)
+        sendIntensity(interpolated, sleepMode: 1)
 
         let work = DispatchWorkItem { [weak self] in
             self?.fadeToTarget(target: target, stepsRemaining: stepsRemaining - 1, stepInterval: stepInterval)
