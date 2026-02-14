@@ -363,7 +363,6 @@ struct EffectsControls: View {
 
     private let columnsPerRow = 3
 
-    /// Effects split into rows of 3
     private var effectRows: [[LightEffect]] {
         let effects = LightEffect.availableEffects
         return stride(from: 0, to: effects.count, by: columnsPerRow).map {
@@ -374,7 +373,6 @@ struct EffectsControls: View {
     var body: some View {
         VStack(spacing: 12) {
             ForEach(Array(effectRows.enumerated()), id: \.offset) { _, row in
-                // Row of effect buttons
                 HStack(spacing: 12) {
                     ForEach(row) { effect in
                         EffectButton(
@@ -392,7 +390,6 @@ struct EffectsControls: View {
                             }
                         }
                     }
-                    // Fill empty slots in last row
                     if row.count < columnsPerRow {
                         ForEach(0..<(columnsPerRow - row.count), id: \.self) { _ in
                             Color.clear.frame(maxWidth: .infinity)
@@ -400,7 +397,6 @@ struct EffectsControls: View {
                     }
                 }
 
-                // Expandable detail panel after the row containing the selected effect
                 if lightState.selectedEffect != .none,
                    row.contains(where: { $0 == lightState.selectedEffect }) {
                     EffectDetailPanel(
@@ -419,6 +415,8 @@ struct EffectsControls: View {
 
     private func sendCurrentEffect() {
         guard lightState.selectedEffect != .none else { return }
+        // Faulty Bulb is handled by software engine — don't send hardware effect
+        guard lightState.selectedEffect != .faultyBulb else { return }
         throttle.send { [bleManager, lightState] in
             bleManager.setEffect(
                 effectType: lightState.selectedEffect.rawValue,
@@ -459,6 +457,7 @@ private struct EffectButton: View {
 
 // MARK: - Effect Detail Panel
 private struct EffectDetailPanel: View {
+    @EnvironmentObject var bleManager: BLEManager
     let effect: LightEffect
     @ObservedObject var lightState: LightState
     var onChanged: () -> Void
@@ -468,8 +467,9 @@ private struct EffectDetailPanel: View {
             switch effect {
             case .copCar:
                 CopCarDetail(lightState: lightState, onChanged: onChanged)
+            case .faultyBulb:
+                FaultyBulbDetail(lightState: lightState)
             default:
-                // Default: just frequency slider
                 FrequencySlider(lightState: lightState, onChanged: onChanged)
             }
         }
@@ -505,13 +505,247 @@ private struct FrequencySlider: View {
     }
 }
 
+// MARK: - Range Slider (dual thumb)
+private struct RangeSlider: View {
+    @Binding var low: Double
+    @Binding var high: Double
+    var range: ClosedRange<Double> = 0...100
+    var step: Double = 1
+
+    @State private var isDraggingLow = false
+    @State private var isDraggingHigh = false
+    @State private var dragStartLow: Double = 0
+    @State private var dragStartHigh: Double = 0
+
+    private let thumbSize: CGFloat = 28
+
+    var body: some View {
+        GeometryReader { geo in
+            let trackWidth = geo.size.width - thumbSize
+            let span = range.upperBound - range.lowerBound
+            let lowFrac = span > 0 ? (low - range.lowerBound) / span : 0
+            let highFrac = span > 0 ? (high - range.lowerBound) / span : 1
+
+            ZStack(alignment: .leading) {
+                // Track background
+                Capsule()
+                    .fill(Color(.systemGray4))
+                    .frame(height: 6)
+                    .padding(.horizontal, thumbSize / 2)
+
+                // Fill between thumbs
+                Capsule()
+                    .fill(Color.orange)
+                    .frame(width: max(0, (highFrac - lowFrac) * trackWidth), height: 6)
+                    .offset(x: thumbSize / 2 + lowFrac * trackWidth)
+
+                // Low thumb
+                Circle()
+                    .fill(.white)
+                    .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
+                    .frame(width: thumbSize, height: thumbSize)
+                    .offset(x: lowFrac * trackWidth)
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { drag in
+                                if !isDraggingLow {
+                                    dragStartLow = low
+                                    isDraggingLow = true
+                                }
+                                let pct = drag.translation.width / trackWidth * span
+                                let raw = dragStartLow + pct
+                                let clamped = max(range.lowerBound, min(high, raw))
+                                low = (clamped / step).rounded() * step
+                            }
+                            .onEnded { _ in isDraggingLow = false }
+                    )
+
+                // High thumb
+                Circle()
+                    .fill(.white)
+                    .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
+                    .frame(width: thumbSize, height: thumbSize)
+                    .offset(x: highFrac * trackWidth)
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { drag in
+                                if !isDraggingHigh {
+                                    dragStartHigh = high
+                                    isDraggingHigh = true
+                                }
+                                let pct = drag.translation.width / trackWidth * span
+                                let raw = dragStartHigh + pct
+                                let clamped = max(low, min(range.upperBound, raw))
+                                high = (clamped / step).rounded() * step
+                            }
+                            .onEnded { _ in isDraggingHigh = false }
+                    )
+            }
+            .frame(maxHeight: .infinity)
+        }
+        .frame(height: thumbSize)
+    }
+}
+
+// MARK: - Faulty Bulb Software Engine
+/// Sends random intensity values within a range at irregular intervals,
+/// simulating a realistic faulty/flickering bulb effect.
+/// Supports smooth fading between intensity levels via the transition parameter.
+private class FaultyBulbEngine {
+    private var workItem: DispatchWorkItem?
+    private weak var bleManager: BLEManager?
+    private weak var lightState: LightState?
+    private var currentIntensity: Double = 50.0
+
+    func start(bleManager: BLEManager, lightState: LightState) {
+        stop()
+        self.bleManager = bleManager
+        self.lightState = lightState
+        self.currentIntensity = lightState.intensity
+        pickNewTarget()
+    }
+
+    func stop() {
+        workItem?.cancel()
+        workItem = nil
+        bleManager = nil
+        lightState = nil
+    }
+
+    /// Pick a new random target and either jump or fade to it
+    private func pickNewTarget() {
+        guard let ls = lightState else { return }
+
+        let lo = min(ls.faultyBulbMin, ls.faultyBulbMax)
+        let hi = max(ls.faultyBulbMin, ls.faultyBulbMax)
+        let target = Double.random(in: lo...hi)
+        let transition = ls.faultyBulbTransition
+
+        if transition < 0.5 {
+            // Instant: jump directly
+            currentIntensity = target
+            bleManager?.setIntensity(target)
+            scheduleNextTarget()
+        } else {
+            // Fade: interpolate over duration
+            // transition 1 = ~0.15s, 15 = ~2s
+            let fadeDuration = transition * 0.13
+            let stepInterval: Double = 0.08
+            let totalSteps = max(1, Int(fadeDuration / stepInterval))
+            fadeToTarget(target: target, stepsRemaining: totalSteps, totalSteps: totalSteps, stepInterval: stepInterval)
+        }
+    }
+
+    /// Incrementally step toward the target intensity
+    private func fadeToTarget(target: Double, stepsRemaining: Int, totalSteps: Int, stepInterval: Double) {
+        guard stepsRemaining > 0 else {
+            currentIntensity = target
+            bleManager?.setIntensity(target)
+            scheduleNextTarget()
+            return
+        }
+
+        // Linear interpolation step
+        let progress = 1.0 - (Double(stepsRemaining) / Double(totalSteps))
+        let startIntensity = currentIntensity
+        let interpolated = startIntensity + (target - startIntensity) * (1.0 / Double(stepsRemaining))
+        currentIntensity = interpolated
+        bleManager?.setIntensity(interpolated)
+
+        let work = DispatchWorkItem { [weak self] in
+            self?.fadeToTarget(target: target, stepsRemaining: stepsRemaining - 1, totalSteps: totalSteps, stepInterval: stepInterval)
+        }
+        workItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + stepInterval, execute: work)
+    }
+
+    /// Wait a random interval then pick the next target
+    private func scheduleNextTarget() {
+        guard let ls = lightState else { return }
+
+        let speed = ls.effectFrequency
+        let baseInterval = max(0.06, 1.2 - speed * 0.08)
+        let interval = baseInterval * Double.random(in: 0.2...1.8)
+
+        let work = DispatchWorkItem { [weak self] in
+            self?.pickNewTarget()
+        }
+        workItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + interval, execute: work)
+    }
+}
+
+// MARK: - Faulty Bulb Detail
+private struct FaultyBulbDetail: View {
+    @EnvironmentObject var bleManager: BLEManager
+    @ObservedObject var lightState: LightState
+    @State private var engine = FaultyBulbEngine()
+
+    var body: some View {
+        VStack(spacing: 12) {
+            // Range slider
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Flicker Range")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text("\(Int(lightState.faultyBulbMin))% – \(Int(lightState.faultyBulbMax))%")
+                        .font(.caption)
+                        .monospacedDigit()
+                }
+
+                RangeSlider(
+                    low: $lightState.faultyBulbMin,
+                    high: $lightState.faultyBulbMax
+                )
+            }
+
+            // Transition slider: instant click ↔ slow fade
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Transition")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text(lightState.faultyBulbTransition < 0.5 ? "Instant" : String(format: "%.1fs", lightState.faultyBulbTransition * 0.13))
+                        .font(.caption)
+                        .monospacedDigit()
+                }
+
+                Slider(value: $lightState.faultyBulbTransition, in: 0...15, step: 1)
+            }
+
+            // Speed slider
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Speed")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text("\(Int(lightState.effectFrequency))")
+                        .font(.caption)
+                        .monospacedDigit()
+                }
+
+                Slider(value: $lightState.effectFrequency, in: 0...15, step: 1)
+            }
+        }
+        .onAppear {
+            engine.start(bleManager: bleManager, lightState: lightState)
+        }
+        .onDisappear {
+            engine.stop()
+        }
+    }
+}
+
 // MARK: - Cop Car Detail
 private struct CopCarDetail: View {
     @ObservedObject var lightState: LightState
     var onChanged: () -> Void
     private let throttle = ThrottledSender()
 
-    /// Color options: protocol value → label
     private let colorOptions: [(value: Int, label: String)] = [
         (0, "Red"),
         (2, "Red + Blue"),
@@ -521,7 +755,6 @@ private struct CopCarDetail: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            // Color picker
             VStack(alignment: .leading, spacing: 6) {
                 Text("Color")
                     .font(.caption)
@@ -555,7 +788,6 @@ private struct CopCarDetail: View {
                 }
             }
 
-            // Frequency slider
             FrequencySlider(lightState: lightState, onChanged: onChanged)
         }
     }
