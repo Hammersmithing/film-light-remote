@@ -121,6 +121,7 @@ class LightState: ObservableObject {
     @Published var faultyBulbFrequency: Double = 5.0 // 1-9 fixed, 10 = random
     @Published var faultyBulbBias: Double = 100.0 // 0 = not faulty, 100 = fully faulty (log scaled)
     @Published var faultyBulbColorMode: LightMode = .cct // .cct or .hsi for flicker color
+    @Published var strobeColorMode: LightMode = .cct // .cct or .hsi for strobe color
 
     // MARK: - Computed Properties
 

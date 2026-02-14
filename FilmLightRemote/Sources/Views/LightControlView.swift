@@ -178,11 +178,16 @@ struct PowerIntensitySection: View {
                                 if lightState.selectedEffect == .faultyBulb {
                                     bleManager.startFaultyBulb(lightState: lightState)
                                 } else if lightState.selectedEffect != .none {
+                                    let isHSI = lightState.selectedEffect == .strobe && lightState.strobeColorMode == .hsi
                                     bleManager.setEffect(
                                         effectType: lightState.selectedEffect.rawValue,
                                         intensityPercent: lightState.intensity,
                                         frq: Int(lightState.effectFrequency),
-                                        copCarColor: lightState.copCarColor)
+                                        cctKelvin: Int(lightState.cctKelvin),
+                                        copCarColor: lightState.copCarColor,
+                                        effectMode: isHSI ? 1 : 0,
+                                        hue: Int(lightState.hue),
+                                        saturation: Int(lightState.saturation))
                                 }
                             }
                         }
@@ -478,11 +483,16 @@ struct EffectsControls: View {
         // Faulty Bulb is handled by software engine — don't send hardware effect
         guard lightState.selectedEffect != .faultyBulb else { return }
         throttle.send { [bleManager, lightState] in
+            let isHSI = lightState.selectedEffect == .strobe && lightState.strobeColorMode == .hsi
             bleManager.setEffect(
                 effectType: lightState.selectedEffect.rawValue,
                 intensityPercent: lightState.intensity,
                 frq: Int(lightState.effectFrequency),
-                copCarColor: lightState.copCarColor)
+                cctKelvin: Int(lightState.cctKelvin),
+                copCarColor: lightState.copCarColor,
+                effectMode: isHSI ? 1 : 0,
+                hue: Int(lightState.hue),
+                saturation: Int(lightState.saturation))
         }
     }
 }
@@ -554,6 +564,8 @@ private struct EffectDetailPanel: View {
                 CopCarDetail(lightState: lightState, onChanged: onChanged)
             case .faultyBulb:
                 FaultyBulbDetail(lightState: lightState, cctRange: cctRange)
+            case .strobe:
+                StrobeDetail(lightState: lightState, cctRange: cctRange, onChanged: onChanged)
             default:
                 FrequencySlider(lightState: lightState, onChanged: onChanged)
             }
@@ -896,6 +908,106 @@ private struct FaultyBulbDetail: View {
                     sleepMode: 1
                 )
             }
+        }
+    }
+}
+
+// MARK: - Strobe Detail
+private struct StrobeDetail: View {
+    @EnvironmentObject var bleManager: BLEManager
+    @ObservedObject var lightState: LightState
+    var cctRange: ClosedRange<Double> = 2700...6500
+    var onChanged: () -> Void
+    private let throttle = ThrottledSender()
+
+    var body: some View {
+        VStack(spacing: 12) {
+            // Color mode picker: CCT / HSI
+            Picker("Mode", selection: $lightState.strobeColorMode) {
+                Text("CCT").tag(LightMode.cct)
+                Text("HSI").tag(LightMode.hsi)
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: lightState.strobeColorMode) { _ in onChanged() }
+
+            // Mode-specific color controls
+            if lightState.strobeColorMode == .hsi {
+                // Hue slider
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Hue")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text("\(Int(lightState.hue))")
+                            .font(.caption)
+                            .monospacedDigit()
+                    }
+
+                    ZStack {
+                        LinearGradient(
+                            colors: (0...6).map { Color(hue: Double($0) / 6.0, saturation: 1.0, brightness: 1.0) },
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                        .frame(height: 8)
+                        .cornerRadius(4)
+
+                        Slider(value: $lightState.hue, in: 0...360, step: 1)
+                            .tint(.clear)
+                            .onChange(of: lightState.hue) { _ in onChanged() }
+                    }
+                }
+
+                // Saturation slider
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Saturation")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text("\(Int(lightState.saturation))%")
+                            .font(.caption)
+                            .monospacedDigit()
+                    }
+
+                    Slider(value: $lightState.saturation, in: 0...100, step: 1)
+                        .onChange(of: lightState.saturation) { _ in onChanged() }
+                }
+            } else {
+                // CCT slider
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Color Temperature")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text("\(Int(lightState.cctKelvin))K")
+                            .font(.caption)
+                            .monospacedDigit()
+                    }
+
+                    ZStack(alignment: .leading) {
+                        LinearGradient(
+                            colors: [
+                                Color(red: 1.0, green: 0.7, blue: 0.4),
+                                Color.white,
+                                Color(red: 0.8, green: 0.9, blue: 1.0)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                        .frame(height: 8)
+                        .cornerRadius(4)
+
+                        Slider(value: $lightState.cctKelvin, in: cctRange, step: 100)
+                            .tint(.clear)
+                            .onChange(of: lightState.cctKelvin) { _ in onChanged() }
+                    }
+                }
+            }
+
+            FrequencySlider(lightState: lightState, onChanged: onChanged)
         }
     }
 }

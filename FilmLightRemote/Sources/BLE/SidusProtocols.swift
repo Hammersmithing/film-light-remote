@@ -270,6 +270,9 @@ struct SidusEffectProtocol: SidusProtocol {
     var sat: Int = 100        // Party (0-100)
     var type: Int = 0         // Fireworks type (0-255)
 
+    // HSI fields for multi-mode effects
+    var hue: Int = 0          // 0-360
+
     // Lightning params
     var speed: Int = 8        // 0-15 for Lightning, 0-15 for Pulsing/FaultyBulb
     var trigger: Int = 2      // 0-3
@@ -377,18 +380,32 @@ struct SidusEffectProtocol: SidusProtocol {
             bits.append(toBinary(7, width: 7))
             bits.append(toBinary(1, width: 1))
 
-        case 6, 7: // Strobe, Explosion — multi-mode (CCT, no speed)
+        case 6, 7: // Strobe, Explosion — multi-mode (CCT or HSI)
             bits.append(toBinary(0, width: 8))
             bits.append(toBinary(sleepMode, width: 1))
-            bits.append(toBinary(0, width: 15))
-            let cctHigh = (cct * 10 > 10000) ? 1 : 0
-            bits.append(toBinary(cctHigh, width: 1))
-            bits.append(toBinary(gmFlag, width: 1))
-            let (gmHighVal, gmVal) = computeGM()
-            bits.append(toBinary(gmHighVal, width: 1))
-            bits.append(toBinary(trigger, width: 2))
-            bits.append(toBinary(gmVal, width: 7))
-            bits.append(toBinary(computeCCTValue(), width: 10))
+            if effectMode == 1 { // HSI
+                bits.append(toBinary(0, width: 1))
+                let cctHigh = (cct * 10 > 10000) ? 1 : 0
+                bits.append(toBinary(cctHigh, width: 1))
+                bits.append(toBinary(gmFlag, width: 1))
+                let (gmHighVal, gmVal) = computeGM()
+                bits.append(toBinary(gmHighVal, width: 1))
+                bits.append(toBinary(trigger, width: 2))
+                bits.append(toBinary(gmVal, width: 7))
+                bits.append(toBinary(computeCCTValue(), width: 8))
+                bits.append(toBinary(sat, width: 7))
+                bits.append(toBinary(hue, width: 9))
+            } else { // CCT
+                bits.append(toBinary(0, width: 15))
+                let cctHigh = (cct * 10 > 10000) ? 1 : 0
+                bits.append(toBinary(cctHigh, width: 1))
+                bits.append(toBinary(gmFlag, width: 1))
+                let (gmHighVal, gmVal) = computeGM()
+                bits.append(toBinary(gmHighVal, width: 1))
+                bits.append(toBinary(trigger, width: 2))
+                bits.append(toBinary(gmVal, width: 7))
+                bits.append(toBinary(computeCCTValue(), width: 10))
+            }
             bits.append(toBinary(intensity, width: 10))
             bits.append(toBinary(frq, width: 4))
             bits.append(toBinary(effectMode, width: 4))
