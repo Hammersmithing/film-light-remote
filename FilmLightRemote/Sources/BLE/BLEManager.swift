@@ -340,6 +340,34 @@ class BLEManager: NSObject, ObservableObject {
         }
     }
 
+    /// Set intensity with explicit sleepMode control for instant on/off transitions.
+    /// sleepMode=0 puts the light to sleep (instant off), sleepMode=1 wakes it (on).
+    func setIntensityWithSleep(_ percent: Double, sleepMode: Int) {
+        currentIntensity = Int(percent)
+        guard let peripheral = connectedPeripheral else { return }
+
+        let cmd = CCTProtocol(
+            intensity: Int(round(percent * 10)),
+            cct: currentCCT / 10,
+            gm: 100,
+            gmFlag: 0,
+            sleepMode: sleepMode,
+            autoPatchFlag: 0
+        )
+        let payload = cmd.getSendData()
+        var accessMessage: [UInt8] = [0x26]
+        accessMessage.append(contentsOf: payload)
+
+        if let char = meshProxyIn {
+            if let meshPDU = MeshCrypto.createStandardMeshPDU(
+                accessMessage: accessMessage,
+                dst: targetUnicastAddress
+            ) {
+                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
+            }
+        }
+    }
+
     /// Current CCT value for combined commands
     private var currentCCT: Int = 5600
 
@@ -1180,7 +1208,7 @@ class FaultyBulbEngine {
         self.bleManager = bleManager
         self.lightState = lightState
         self.currentIntensity = lightState.intensity
-        pickNewTarget()
+        fireEvent()
     }
 
     func stop() {
@@ -1202,79 +1230,81 @@ class FaultyBulbEngine {
         }
     }
 
-    /// Pick a new random target and either jump or fade to it
-    private func pickNewTarget() {
-        guard let ls = lightState else { return }
-
-        let points = discretePoints()
-        // Pick a random point, avoiding the same one twice in a row
-        var target = points.randomElement() ?? ls.faultyBulbMin
-        if points.count > 1 {
-            while abs(target - currentIntensity) < 0.5 {
-                target = points.randomElement() ?? ls.faultyBulbMin
-            }
-        }
-        let transition = ls.faultyBulbTransition
-
-        if transition < 0.5 {
-            // Instant: jump directly
-            currentIntensity = target
-            bleManager?.setIntensity(target)
-            scheduleNextTarget()
-        } else {
-            // Fade: interpolate over duration
-            // transition 1 = ~0.15s, 15 = ~2s
-            let fadeDuration = transition * 0.13
-            let stepInterval: Double = 0.08
-            let totalSteps = max(1, Int(fadeDuration / stepInterval))
-            fadeToTarget(target: target, stepsRemaining: totalSteps, totalSteps: totalSteps, stepInterval: stepInterval)
-        }
-    }
-
-    /// Incrementally step toward the target intensity
-    private func fadeToTarget(target: Double, stepsRemaining: Int, totalSteps: Int, stepInterval: Double) {
-        guard stepsRemaining > 0 else {
-            currentIntensity = target
-            bleManager?.setIntensity(target)
-            scheduleNextTarget()
-            return
-        }
-
-        // Linear interpolation step
-        let interpolated = currentIntensity + (target - currentIntensity) * (1.0 / Double(stepsRemaining))
-        currentIntensity = interpolated
-        bleManager?.setIntensity(interpolated)
-
-        let work = DispatchWorkItem { [weak self] in
-            self?.fadeToTarget(target: target, stepsRemaining: stepsRemaining - 1, totalSteps: totalSteps, stepInterval: stepInterval)
-        }
-        workItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + stepInterval, execute: work)
-    }
-
-    /// Wait an interval based on frequency then pick the next target
-    /// Frequency 1-9: fixed rate (1 = slow ~2s, 9 = fast ~0.08s), 10 = random
-    private func scheduleNextTarget() {
+    /// The main loop: wait for the frequency interval, then fire an event
+    private func scheduleNextEvent() {
         guard let ls = lightState else { return }
 
         let freq = Int(ls.faultyBulbFrequency)
         let interval: Double
 
         if freq >= 10 {
-            // Random: pick a completely random interval each time
-            interval = Double.random(in: 0.06...2.0)
+            // R = random wait each time
+            interval = Double.random(in: 0.08...2.0)
         } else {
-            // Fixed frequency 1-9: exponential curve from slow to fast
-            // 1 → ~2.0s, 5 → ~0.4s, 9 → ~0.08s
-            let base = 2.0 * pow(0.6, Double(freq - 1))
-            // Small jitter so it doesn't feel mechanical
-            interval = base * Double.random(in: 0.8...1.2)
+            // 1-9: exponential curve, 1 = slow ~1.5s, 9 = fast ~0.08s
+            let base = 1.5 * pow(0.65, Double(freq - 1))
+            interval = base * Double.random(in: 0.85...1.15)
         }
 
         let work = DispatchWorkItem { [weak self] in
-            self?.pickNewTarget()
+            self?.fireEvent()
         }
         workItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + interval, execute: work)
+    }
+
+    /// Fire one flicker event: pick a new point and go there (snap or fade)
+    private func fireEvent() {
+        guard let ls = lightState else { return }
+
+        let points = discretePoints()
+        var target = points.randomElement() ?? ls.faultyBulbMin
+        if points.count > 1 {
+            while abs(target - currentIntensity) < 0.5 {
+                target = points.randomElement() ?? ls.faultyBulbMin
+            }
+        }
+
+        let transition = ls.faultyBulbTransition
+        let lo = min(ls.faultyBulbMin, ls.faultyBulbMax)
+
+        if transition < 0.5 {
+            // Instant snap — use sleepMode toggling for hard cut.
+            // Going to the lowest point: sleep=0 (instant off).
+            // Going to any higher point: sleep=1 (on) with that intensity.
+            currentIntensity = target
+            if target <= lo && lo < 1.0 {
+                bleManager?.setIntensityWithSleep(0, sleepMode: 0)
+            } else {
+                bleManager?.setIntensityWithSleep(target, sleepMode: 1)
+            }
+            scheduleNextEvent()
+        } else {
+            // Fade to target over transition duration, then schedule next
+            let fadeDuration = transition * 0.13 // 1 → 0.13s, 15 → 1.95s
+            let stepInterval: Double = 0.08
+            let totalSteps = max(1, Int(fadeDuration / stepInterval))
+            fadeToTarget(target: target, stepsRemaining: totalSteps, stepInterval: stepInterval)
+        }
+    }
+
+    /// Incrementally step toward the target intensity, then schedule next event
+    private func fadeToTarget(target: Double, stepsRemaining: Int, stepInterval: Double) {
+        guard stepsRemaining > 0 else {
+            currentIntensity = target
+            bleManager?.setIntensity(target)
+            scheduleNextEvent()
+            return
+        }
+
+        let interpolated = currentIntensity + (target - currentIntensity) / Double(stepsRemaining)
+        currentIntensity = interpolated
+        bleManager?.setIntensity(interpolated)
+
+        let work = DispatchWorkItem { [weak self] in
+            self?.fadeToTarget(target: target, stepsRemaining: stepsRemaining - 1, stepInterval: stepInterval)
+        }
+        workItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + stepInterval, execute: work)
     }
 }
