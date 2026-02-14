@@ -612,13 +612,30 @@ private class FaultyBulbEngine {
         lightState = nil
     }
 
+    /// Build the discrete intensity levels from the range and point count
+    private func discretePoints() -> [Double] {
+        guard let ls = lightState else { return [50] }
+        let lo = min(ls.faultyBulbMin, ls.faultyBulbMax)
+        let hi = max(ls.faultyBulbMin, ls.faultyBulbMax)
+        let n = max(2, Int(ls.faultyBulbPoints))
+        if n <= 1 || lo == hi { return [lo] }
+        return (0..<n).map { i in
+            lo + (hi - lo) * Double(i) / Double(n - 1)
+        }
+    }
+
     /// Pick a new random target and either jump or fade to it
     private func pickNewTarget() {
         guard let ls = lightState else { return }
 
-        let lo = min(ls.faultyBulbMin, ls.faultyBulbMax)
-        let hi = max(ls.faultyBulbMin, ls.faultyBulbMax)
-        let target = Double.random(in: lo...hi)
+        let points = discretePoints()
+        // Pick a random point, avoiding the same one twice in a row
+        var target = points.randomElement() ?? ls.faultyBulbMin
+        if points.count > 1 {
+            while abs(target - currentIntensity) < 0.5 {
+                target = points.randomElement() ?? ls.faultyBulbMin
+            }
+        }
         let transition = ls.faultyBulbTransition
 
         if transition < 0.5 {
@@ -699,6 +716,21 @@ private struct FaultyBulbDetail: View {
                     low: $lightState.faultyBulbMin,
                     high: $lightState.faultyBulbMax
                 )
+            }
+
+            // Points slider
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Points")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text("\(Int(lightState.faultyBulbPoints))")
+                        .font(.caption)
+                        .monospacedDigit()
+                }
+
+                Slider(value: $lightState.faultyBulbPoints, in: 2...5, step: 1)
             }
 
             // Transition slider: instant click ↔ slow fade
