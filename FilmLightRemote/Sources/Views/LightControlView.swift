@@ -186,7 +186,8 @@ struct PowerIntensitySection: View {
                                 bleManager.setEffect(
                                     effectType: lightState.selectedEffect.rawValue,
                                     intensityPercent: lightState.intensity,
-                                    frq: Int(lightState.effectFrequency))
+                                    frq: Int(lightState.effectFrequency),
+                                    copCarColor: lightState.copCarColor)
                             }
                         default:
                             bleManager.setIntensity(lightState.intensity)
@@ -360,85 +361,203 @@ struct EffectsControls: View {
     @ObservedObject var lightState: LightState
     private let throttle = ThrottledSender()
 
-    private let columns = [
-        GridItem(.flexible()),
-        GridItem(.flexible()),
-        GridItem(.flexible())
-    ]
+    private let columnsPerRow = 3
+
+    /// Effects split into rows of 3
+    private var effectRows: [[LightEffect]] {
+        let effects = LightEffect.availableEffects
+        return stride(from: 0, to: effects.count, by: columnsPerRow).map {
+            Array(effects[$0..<Swift.min($0 + columnsPerRow, effects.count)])
+        }
+    }
 
     var body: some View {
-        VStack(spacing: 16) {
-            // Effect buttons grid
-            LazyVGrid(columns: columns, spacing: 12) {
-                ForEach(LightEffect.availableEffects) { effect in
-                    Button {
-                        if lightState.selectedEffect == effect {
-                            // Tap active effect to turn it off
-                            lightState.selectedEffect = .none
-                            bleManager.stopEffect()
-                        } else {
-                            lightState.selectedEffect = effect
-                            bleManager.setEffect(
-                                effectType: effect.rawValue,
-                                intensityPercent: lightState.intensity,
-                                frq: Int(lightState.effectFrequency))
-                        }
-                    } label: {
-                        VStack(spacing: 6) {
-                            Image(systemName: effect.icon)
-                                .font(.system(size: 24))
-                            Text(effect.name)
-                                .font(.caption2)
-                                .lineLimit(1)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(
-                            lightState.selectedEffect == effect
-                                ? Color.orange.opacity(0.3)
-                                : Color(.systemGray5)
-                        )
-                        .foregroundColor(
-                            lightState.selectedEffect == effect
-                                ? .orange
-                                : .primary
-                        )
-                        .cornerRadius(10)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(lightState.selectedEffect == effect ? Color.orange : Color.clear, lineWidth: 2)
-                        )
-                    }
-                }
-            }
-
-            // Frequency slider
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Frequency")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Spacer()
-                    Text("\(Int(lightState.effectFrequency))")
-                        .font(.caption)
-                        .monospacedDigit()
-                }
-
-                Slider(value: $lightState.effectFrequency, in: 0...15, step: 1)
-                    .onChange(of: lightState.effectFrequency) { _ in
-                        guard lightState.selectedEffect != .none else { return }
-                        throttle.send { [bleManager, lightState] in
-                            bleManager.setEffect(
-                                effectType: lightState.selectedEffect.rawValue,
-                                intensityPercent: lightState.intensity,
-                                frq: Int(lightState.effectFrequency))
+        VStack(spacing: 12) {
+            ForEach(Array(effectRows.enumerated()), id: \.offset) { _, row in
+                // Row of effect buttons
+                HStack(spacing: 12) {
+                    ForEach(row) { effect in
+                        EffectButton(
+                            effect: effect,
+                            isSelected: lightState.selectedEffect == effect
+                        ) {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                if lightState.selectedEffect == effect {
+                                    lightState.selectedEffect = .none
+                                    bleManager.stopEffect()
+                                } else {
+                                    lightState.selectedEffect = effect
+                                    sendCurrentEffect()
+                                }
+                            }
                         }
                     }
+                    // Fill empty slots in last row
+                    if row.count < columnsPerRow {
+                        ForEach(0..<(columnsPerRow - row.count), id: \.self) { _ in
+                            Color.clear.frame(maxWidth: .infinity)
+                        }
+                    }
+                }
+
+                // Expandable detail panel after the row containing the selected effect
+                if lightState.selectedEffect != .none,
+                   row.contains(where: { $0 == lightState.selectedEffect }) {
+                    EffectDetailPanel(
+                        effect: lightState.selectedEffect,
+                        lightState: lightState,
+                        onChanged: { sendCurrentEffect() }
+                    )
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
             }
         }
         .padding()
         .background(Color(.systemGray6))
         .cornerRadius(12)
+    }
+
+    private func sendCurrentEffect() {
+        guard lightState.selectedEffect != .none else { return }
+        throttle.send { [bleManager, lightState] in
+            bleManager.setEffect(
+                effectType: lightState.selectedEffect.rawValue,
+                intensityPercent: lightState.intensity,
+                frq: Int(lightState.effectFrequency),
+                copCarColor: lightState.copCarColor)
+        }
+    }
+}
+
+// MARK: - Effect Button
+private struct EffectButton: View {
+    let effect: LightEffect
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: effect.icon)
+                    .font(.system(size: 24))
+                Text(effect.name)
+                    .font(.caption2)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(isSelected ? Color.orange.opacity(0.3) : Color(.systemGray5))
+            .foregroundColor(isSelected ? .orange : .primary)
+            .cornerRadius(10)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(isSelected ? Color.orange : Color.clear, lineWidth: 2)
+            )
+        }
+    }
+}
+
+// MARK: - Effect Detail Panel
+private struct EffectDetailPanel: View {
+    let effect: LightEffect
+    @ObservedObject var lightState: LightState
+    var onChanged: () -> Void
+
+    var body: some View {
+        VStack(spacing: 12) {
+            switch effect {
+            case .copCar:
+                CopCarDetail(lightState: lightState, onChanged: onChanged)
+            default:
+                // Default: just frequency slider
+                FrequencySlider(lightState: lightState, onChanged: onChanged)
+            }
+        }
+        .padding(12)
+        .background(Color(.systemGray5))
+        .cornerRadius(10)
+    }
+}
+
+// MARK: - Frequency Slider (shared)
+private struct FrequencySlider: View {
+    @ObservedObject var lightState: LightState
+    var onChanged: () -> Void
+    private let throttle = ThrottledSender()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("Frequency")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Text("\(Int(lightState.effectFrequency))")
+                    .font(.caption)
+                    .monospacedDigit()
+            }
+
+            Slider(value: $lightState.effectFrequency, in: 0...15, step: 1)
+                .onChange(of: lightState.effectFrequency) { _ in
+                    throttle.send { onChanged() }
+                }
+        }
+    }
+}
+
+// MARK: - Cop Car Detail
+private struct CopCarDetail: View {
+    @ObservedObject var lightState: LightState
+    var onChanged: () -> Void
+    private let throttle = ThrottledSender()
+
+    /// Color options: protocol value → label
+    private let colorOptions: [(value: Int, label: String)] = [
+        (0, "Red"),
+        (2, "Red + Blue"),
+        (4, "Red + Blue + White"),
+        (1, "Blue"),
+    ]
+
+    var body: some View {
+        VStack(spacing: 12) {
+            // Color picker
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Color")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                HStack(spacing: 8) {
+                    ForEach(colorOptions, id: \.value) { option in
+                        Button {
+                            lightState.copCarColor = option.value
+                            throttle.send { onChanged() }
+                        } label: {
+                            Text(option.label)
+                                .font(.caption2)
+                                .fontWeight(lightState.copCarColor == option.value ? .bold : .regular)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 6)
+                                .frame(maxWidth: .infinity)
+                                .background(
+                                    lightState.copCarColor == option.value
+                                        ? Color.orange.opacity(0.3)
+                                        : Color(.systemGray4)
+                                )
+                                .foregroundColor(
+                                    lightState.copCarColor == option.value
+                                        ? .orange
+                                        : .primary
+                                )
+                                .cornerRadius(6)
+                        }
+                    }
+                }
+            }
+
+            // Frequency slider
+            FrequencySlider(lightState: lightState, onChanged: onChanged)
+        }
     }
 }
 

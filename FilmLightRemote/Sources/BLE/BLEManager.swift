@@ -451,13 +451,14 @@ class BLEManager: NSObject, ObservableObject {
         }
     }
 
-    func setEffect(effectType: Int, intensityPercent: Double, frq: Int, cctKelvin: Int = 5600) {
+    func setEffect(effectType: Int, intensityPercent: Double, frq: Int, cctKelvin: Int = 5600, copCarColor: Int = 0) {
         currentMode = "effects"
         guard let peripheral = connectedPeripheral else { return }
 
-        log("setEffect(type:\(effectType), intensity:\(intensityPercent)%, frq:\(frq)) target=0x\(String(format: "%04X", targetUnicastAddress))")
+        log("setEffect(type:\(effectType), intensity:\(intensityPercent)%, frq:\(frq), color:\(copCarColor)) target=0x\(String(format: "%04X", targetUnicastAddress))")
 
-        let cmd = SidusEffectProtocol(effectType: effectType, intensityPercent: intensityPercent, frq: frq, cctKelvin: cctKelvin)
+        var cmd = SidusEffectProtocol(effectType: effectType, intensityPercent: intensityPercent, frq: frq, cctKelvin: cctKelvin)
+        cmd.color = copCarColor
         let payload = cmd.getSendData()
         var accessMessage: [UInt8] = [0x26]
         accessMessage.append(contentsOf: payload)

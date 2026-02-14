@@ -112,6 +112,7 @@ class LightState: ObservableObject {
     @Published var selectedEffect: LightEffect = .none
     @Published var effectSpeed: Double = 50.0 // 0-100
     @Published var effectFrequency: Double = 8.0 // 0-15 (protocol frq field)
+    @Published var copCarColor: Int = 0 // 0=Red, 1=Blue, 2=R+B, 3=B+W, 4=R+B+W
 
     // MARK: - Computed Properties
 
