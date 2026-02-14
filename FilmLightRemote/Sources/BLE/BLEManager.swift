@@ -334,11 +334,13 @@ class BLEManager: NSObject, ObservableObject {
         currentMode = "cct"
         guard let peripheral = connectedPeripheral else { return }
 
-        log("setIntensity(\(percent)%) target=0x\(String(format: "%04X", targetUnicastAddress))")
+        let protocolIntensity = Int(round(percent * 10))
+        log("setIntensity(\(percent)%) protocolValue=\(protocolIntensity) cct=\(currentCCT)K target=0x\(String(format: "%04X", targetUnicastAddress))")
 
         // Sidus opcode 0x26 + CCTProtocol — controls intensity via CCT mode
         let cctCmd = CCTProtocol(intensityPercent: percent, cctKelvin: currentCCT)
         let payload = cctCmd.getSendData()
+        log("  payload hex: \(payload.map { String(format: "%02X", $0) }.joined(separator: " "))")
         var accessMessage: [UInt8] = [0x26]
         accessMessage.append(contentsOf: payload)
 
@@ -348,7 +350,7 @@ class BLEManager: NSObject, ObservableObject {
                 dst: targetUnicastAddress
             ) {
                 peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
-                log("  Sent CCT intensity(\(percent)%) to 0x\(String(format: "%04X", targetUnicastAddress))")
+                log("  Sent CCT intensity(\(percent)%) protocolValue=\(protocolIntensity) to 0x\(String(format: "%04X", targetUnicastAddress))")
             }
         }
     }
@@ -360,8 +362,9 @@ class BLEManager: NSObject, ObservableObject {
         guard let peripheral = connectedPeripheral else { return }
         let dst = targetAddress ?? targetUnicastAddress
 
+        let protocolIntensity = Int(round(percent * 10))
         let cmd = CCTProtocol(
-            intensity: Int(round(percent * 10)),
+            intensity: protocolIntensity,
             cct: cctKelvin / 10,
             gm: 100,
             gmFlag: 0,
@@ -369,6 +372,7 @@ class BLEManager: NSObject, ObservableObject {
             autoPatchFlag: 0
         )
         let payload = cmd.getSendData()
+        log("setCCTWithSleep(i:\(percent)% pv:\(protocolIntensity) cct:\(cctKelvin)K sleep:\(sleepMode)) payload: \(payload.map { String(format: "%02X", $0) }.joined(separator: " "))")
         var accessMessage: [UInt8] = [0x26]
         accessMessage.append(contentsOf: payload)
 
@@ -546,6 +550,7 @@ class BLEManager: NSObject, ObservableObject {
 
     func stopEffect() {
         stopFaultyBulb()
+        stopPaparazzi()
         guard let peripheral = connectedPeripheral else { return }
 
         log("stopEffect() target=0x\(String(format: "%04X", targetUnicastAddress))")
@@ -566,12 +571,13 @@ class BLEManager: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - Faulty Bulb Software Engine
+    // MARK: - Software Effect Engines
 
     private(set) var faultyBulbEngine: FaultyBulbEngine?
+    private(set) var paparazziEngine: PaparazziEngine?
 
-    /// Whether a background faulty bulb engine is actively running
-    var hasActiveEngine: Bool { faultyBulbEngine != nil }
+    /// Whether a background engine is actively running
+    var hasActiveEngine: Bool { faultyBulbEngine != nil || paparazziEngine != nil }
 
     /// Start the software-driven faulty bulb effect. Survives view lifecycle changes.
     func startFaultyBulb(lightState: LightState) {
@@ -588,6 +594,24 @@ class BLEManager: NSObject, ObservableObject {
             faultyBulbEngine?.stop()
             faultyBulbEngine = nil
             log("Faulty bulb engine stopped")
+        }
+    }
+
+    /// Start the software-driven paparazzi effect (camera flash bursts in any color).
+    func startPaparazzi(lightState: LightState) {
+        stopPaparazzi()
+        let engine = PaparazziEngine()
+        paparazziEngine = engine
+        engine.start(bleManager: self, lightState: lightState, targetAddress: targetUnicastAddress)
+        log("Paparazzi engine started for 0x\(String(format: "%04X", targetUnicastAddress))")
+    }
+
+    /// Stop the software-driven paparazzi effect.
+    func stopPaparazzi() {
+        if paparazziEngine != nil {
+            paparazziEngine?.stop()
+            paparazziEngine = nil
+            log("Paparazzi engine stopped")
         }
     }
 
@@ -940,7 +964,8 @@ extension BLEManager: CBCentralManagerDelegate {
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         log("Disconnected from \(peripheral.name ?? "Unknown")")
-        stopFaultyBulb() // Engine can no longer send — stop it
+        stopFaultyBulb()  // Engine can no longer send — stop it
+        stopPaparazzi()
         cleanup()
     }
 }
@@ -1444,5 +1469,124 @@ class FaultyBulbEngine {
         }
         workItem = work
         queue.asyncAfter(deadline: .now() + stepInterval, execute: work)
+    }
+}
+
+// MARK: - Paparazzi Software Engine
+/// Simulates camera flash bursts (paparazzi) in any color mode.
+/// Brief intense flashes at random intervals with occasional double/triple bursts.
+class PaparazziEngine {
+    private var workItem: DispatchWorkItem?
+    private var bleManager: BLEManager?
+    private let queue = DispatchQueue(label: "com.filmlightremote.paparazzi", qos: .userInitiated)
+
+    // Stored parameters
+    private(set) var targetAddress: UInt16 = 0x0002
+    private var colorMode: LightMode = .hsi
+    private var cctKelvin: Int = 5600
+    private var hue: Int = 0
+    private var saturation: Int = 100
+    private var hsiCCT: Int = 5600
+    private var intensity: Double = 100.0
+    private var frequency: Double = 8.0  // 0-15
+
+    func start(bleManager: BLEManager, lightState: LightState, targetAddress: UInt16) {
+        stop()
+        self.bleManager = bleManager
+        self.targetAddress = targetAddress
+        updateParams(from: lightState)
+        scheduleNextFlash()
+    }
+
+    func stop() {
+        workItem?.cancel()
+        workItem = nil
+        bleManager = nil
+    }
+
+    func updateParams(from lightState: LightState) {
+        colorMode = lightState.paparazziColorMode
+        cctKelvin = Int(lightState.cctKelvin)
+        hue = Int(lightState.hue)
+        saturation = Int(lightState.saturation)
+        hsiCCT = Int(lightState.hsiCCT)
+        intensity = max(lightState.intensity, 10) // Ensure visible flash
+        frequency = lightState.effectFrequency
+    }
+
+    private func scheduleNextFlash() {
+        guard bleManager != nil else { return }
+
+        // Map frequency (0-15) to gap between flashes
+        // frq 0 = slow (~3s gaps), frq 15 = rapid (~0.08s gaps)
+        let baseGap = 3.0 * pow(0.75, frequency)
+        let gap = baseGap * Double.random(in: 0.5...1.5)
+
+        let work = DispatchWorkItem { [weak self] in
+            self?.fireFlash()
+        }
+        workItem = work
+        queue.asyncAfter(deadline: .now() + gap, execute: work)
+    }
+
+    private func fireFlash() {
+        guard bleManager != nil else { return }
+
+        // Flash ON
+        sendColor(intensity: intensity, sleepMode: 1)
+
+        // Flash duration: 30-80ms (brief camera flash)
+        let flashDuration = Double.random(in: 0.03...0.08)
+
+        let work = DispatchWorkItem { [weak self] in
+            guard let self = self, self.bleManager != nil else { return }
+            // Flash OFF
+            self.sendColor(intensity: 0, sleepMode: 0)
+
+            // 30% chance of a quick double flash
+            if Double.random(in: 0...1) < 0.3 {
+                let burstDelay = Double.random(in: 0.05...0.15)
+                let burstWork = DispatchWorkItem { [weak self] in
+                    guard let self = self, self.bleManager != nil else { return }
+                    // Second flash ON
+                    self.sendColor(intensity: self.intensity, sleepMode: 1)
+
+                    let offWork = DispatchWorkItem { [weak self] in
+                        guard let self = self else { return }
+                        self.sendColor(intensity: 0, sleepMode: 0)
+                        self.scheduleNextFlash()
+                    }
+                    self.workItem = offWork
+                    self.queue.asyncAfter(deadline: .now() + flashDuration, execute: offWork)
+                }
+                self.workItem = burstWork
+                self.queue.asyncAfter(deadline: .now() + burstDelay, execute: burstWork)
+            } else {
+                self.scheduleNextFlash()
+            }
+        }
+        workItem = work
+        queue.asyncAfter(deadline: .now() + flashDuration, execute: work)
+    }
+
+    private func sendColor(intensity: Double, sleepMode: Int) {
+        guard let mgr = bleManager else { return }
+        if colorMode == .hsi {
+            mgr.setHSIWithSleep(
+                intensity: intensity,
+                hue: hue,
+                saturation: saturation,
+                cctKelvin: hsiCCT,
+                sleepMode: sleepMode,
+                targetAddress: targetAddress
+            )
+        } else {
+            mgr.setCCTWithSleep(
+                intensity: intensity,
+                cctKelvin: cctKelvin,
+                sleepMode: sleepMode,
+                targetAddress: targetAddress
+            )
+        }
     }
 }

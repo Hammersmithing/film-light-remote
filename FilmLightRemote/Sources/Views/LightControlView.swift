@@ -177,6 +177,8 @@ struct PowerIntensitySection: View {
                                 lightState.effectPlaying = true
                                 if lightState.selectedEffect == .faultyBulb {
                                     bleManager.startFaultyBulb(lightState: lightState)
+                                } else if lightState.selectedEffect == .paparazzi && lightState.paparazziColorMode == .hsi {
+                                    bleManager.startPaparazzi(lightState: lightState)
                                 } else if lightState.selectedEffect != .none {
                                     let isHSI = lightState.selectedEffect == .strobe && lightState.strobeColorMode == .hsi
                                     bleManager.setEffect(
@@ -446,7 +448,8 @@ struct EffectsControls: View {
                         cctRange: cctRange,
                         onPlay: { playCurrentEffect() },
                         onStop: { stopCurrentEffect() },
-                        onChanged: { if lightState.effectPlaying { sendCurrentEffect() } }
+                        onChanged: { if lightState.effectPlaying { sendCurrentEffect() } },
+                        onModeChanged: { restartCurrentEffect() }
                     )
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
@@ -457,11 +460,18 @@ struct EffectsControls: View {
         .cornerRadius(12)
     }
 
+    /// Whether the current effect uses a software engine
+    private var isPaparazziEngine: Bool {
+        lightState.selectedEffect == .paparazzi && lightState.paparazziColorMode == .hsi
+    }
+
     private func playCurrentEffect() {
         guard lightState.selectedEffect != .none else { return }
         lightState.effectPlaying = true
         if lightState.selectedEffect == .faultyBulb {
             bleManager.startFaultyBulb(lightState: lightState)
+        } else if isPaparazziEngine {
+            bleManager.startPaparazzi(lightState: lightState)
         } else {
             sendCurrentEffect()
         }
@@ -477,12 +487,15 @@ struct EffectsControls: View {
         }
     }
 
-    private func sendCurrentEffect() {
-        guard lightState.selectedEffect != .none else { return }
+    /// Called when the color mode picker changes while playing — restart with the right method.
+    private func restartCurrentEffect() {
         guard lightState.effectPlaying else { return }
-        // Faulty Bulb is handled by software engine — don't send hardware effect
-        guard lightState.selectedEffect != .faultyBulb else { return }
-        throttle.send { [bleManager, lightState] in
+        // Stop whatever is running (hardware or engine)
+        bleManager.stopEffect()
+        // Restart with the new mode
+        if isPaparazziEngine {
+            bleManager.startPaparazzi(lightState: lightState)
+        } else {
             let isHSI = lightState.selectedEffect == .strobe && lightState.strobeColorMode == .hsi
             bleManager.setEffect(
                 effectType: lightState.selectedEffect.rawValue,
@@ -493,6 +506,31 @@ struct EffectsControls: View {
                 effectMode: isHSI ? 1 : 0,
                 hue: Int(lightState.hue),
                 saturation: Int(lightState.saturation))
+        }
+    }
+
+    /// Slider drag updates: update engine params or send hardware command.
+    private func sendCurrentEffect() {
+        guard lightState.selectedEffect != .none else { return }
+        guard lightState.effectPlaying else { return }
+        guard lightState.selectedEffect != .faultyBulb else { return }
+
+        if isPaparazziEngine {
+            // Software engine — just update params, engine uses them on next flash
+            bleManager.paparazziEngine?.updateParams(from: lightState)
+        } else {
+            throttle.send { [bleManager, lightState] in
+                let isHSI = lightState.selectedEffect == .strobe && lightState.strobeColorMode == .hsi
+                bleManager.setEffect(
+                    effectType: lightState.selectedEffect.rawValue,
+                    intensityPercent: lightState.intensity,
+                    frq: Int(lightState.effectFrequency),
+                    cctKelvin: Int(lightState.cctKelvin),
+                    copCarColor: lightState.copCarColor,
+                    effectMode: isHSI ? 1 : 0,
+                    hue: Int(lightState.hue),
+                    saturation: Int(lightState.saturation))
+            }
         }
     }
 }
@@ -534,6 +572,7 @@ private struct EffectDetailPanel: View {
     var onPlay: () -> Void
     var onStop: () -> Void
     var onChanged: () -> Void
+    var onModeChanged: () -> Void = {}
 
     var body: some View {
         VStack(spacing: 12) {
@@ -564,8 +603,10 @@ private struct EffectDetailPanel: View {
                 CopCarDetail(lightState: lightState, onChanged: onChanged)
             case .faultyBulb:
                 FaultyBulbDetail(lightState: lightState, cctRange: cctRange)
+            case .paparazzi:
+                ColorModeEffectDetail(lightState: lightState, cctRange: cctRange, onChanged: onChanged, onModeChanged: onModeChanged, colorMode: $lightState.paparazziColorMode)
             case .strobe:
-                StrobeDetail(lightState: lightState, cctRange: cctRange, onChanged: onChanged)
+                ColorModeEffectDetail(lightState: lightState, cctRange: cctRange, onChanged: onChanged, onModeChanged: onModeChanged, colorMode: $lightState.strobeColorMode)
             default:
                 FrequencySlider(lightState: lightState, onChanged: onChanged)
             }
@@ -940,26 +981,28 @@ private struct FaultyBulbDetail: View {
     }
 }
 
-// MARK: - Strobe Detail
-private struct StrobeDetail: View {
+// MARK: - Color Mode Effect Detail (Strobe, Paparazzi, etc.)
+private struct ColorModeEffectDetail: View {
     @EnvironmentObject var bleManager: BLEManager
     @ObservedObject var lightState: LightState
     var cctRange: ClosedRange<Double> = 2700...6500
     var onChanged: () -> Void
+    var onModeChanged: () -> Void = {}
+    @Binding var colorMode: LightMode
     private let throttle = ThrottledSender()
 
     var body: some View {
         VStack(spacing: 12) {
             // Color mode picker: CCT / HSI
-            Picker("Mode", selection: $lightState.strobeColorMode) {
+            Picker("Mode", selection: $colorMode) {
                 Text("CCT").tag(LightMode.cct)
                 Text("HSI").tag(LightMode.hsi)
             }
             .pickerStyle(.segmented)
-            .onChange(of: lightState.strobeColorMode) { _ in onChanged() }
+            .onChange(of: colorMode) { _ in onModeChanged() }
 
             // Mode-specific color controls
-            if lightState.strobeColorMode == .hsi {
+            if colorMode == .hsi {
                 // Hue slider
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
