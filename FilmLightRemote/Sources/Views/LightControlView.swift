@@ -149,12 +149,44 @@ struct PowerIntensitySection: View {
     var intensityStep: Double = 1.0
     private let throttle = ThrottledSender()
 
+    /// Tracks whether the effect was playing before the user turned the light off,
+    /// so we can resume it when they turn it back on.
+    @State private var effectWasPlaying = false
+
     var body: some View {
         VStack(spacing: 16) {
             // Power toggle with intensity display
             HStack {
                 Button {
                     lightState.isOn.toggle()
+                    if lightState.mode == .effects {
+                        if !lightState.isOn {
+                            // Turning off — remember if effect was playing, then pause
+                            effectWasPlaying = lightState.effectPlaying
+                            if lightState.effectPlaying {
+                                lightState.effectPlaying = false
+                                if lightState.selectedEffect == .faultyBulb {
+                                    bleManager.stopFaultyBulb()
+                                } else {
+                                    bleManager.stopEffect()
+                                }
+                            }
+                        } else {
+                            // Turning on — resume effect if it was playing before
+                            if effectWasPlaying {
+                                lightState.effectPlaying = true
+                                if lightState.selectedEffect == .faultyBulb {
+                                    bleManager.startFaultyBulb(lightState: lightState)
+                                } else if lightState.selectedEffect != .none {
+                                    bleManager.setEffect(
+                                        effectType: lightState.selectedEffect.rawValue,
+                                        intensityPercent: lightState.intensity,
+                                        frq: Int(lightState.effectFrequency),
+                                        copCarColor: lightState.copCarColor)
+                                }
+                            }
+                        }
+                    }
                     bleManager.setPowerOn(lightState.isOn)
                 } label: {
                     Image(systemName: lightState.isOn ? "power.circle.fill" : "power.circle")
@@ -164,41 +196,37 @@ struct PowerIntensitySection: View {
 
                 Spacer()
 
-                // Intensity percentage display
-                Text(intensityStep < 1 ? String(format: "%.1f%%", lightState.intensity) : "\(Int(lightState.intensity))%")
-                    .font(.system(size: 48, weight: .bold, design: .rounded))
-                    .monospacedDigit()
+                if lightState.mode != .effects {
+                    // Intensity percentage display
+                    Text(intensityStep < 1 ? String(format: "%.1f%%", lightState.intensity) : "\(Int(lightState.intensity))%")
+                        .font(.system(size: 48, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                }
             }
 
-            // Intensity slider — horizontal = whole numbers, vertical = 0.1 fine tune
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Intensity")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+            if lightState.mode != .effects {
+                // Intensity slider — horizontal = whole numbers, vertical = 0.1 fine tune
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Intensity")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
 
-                IntensitySlider(value: $lightState.intensity, fineStep: intensityStep) {
-                    throttle.send { [bleManager, lightState] in
-                        switch lightState.mode {
-                        case .hsi:
-                            lightState.hsiIntensity = lightState.intensity
-                            bleManager.setHSI(hue: Int(lightState.hue),
-                                            saturation: Int(lightState.saturation),
-                                            intensity: Int(lightState.intensity))
-                        case .effects:
-                            if lightState.selectedEffect != .none && lightState.effectPlaying && lightState.selectedEffect != .faultyBulb {
-                                bleManager.setEffect(
-                                    effectType: lightState.selectedEffect.rawValue,
-                                    intensityPercent: lightState.intensity,
-                                    frq: Int(lightState.effectFrequency),
-                                    copCarColor: lightState.copCarColor)
+                    IntensitySlider(value: $lightState.intensity, fineStep: intensityStep) {
+                        throttle.send { [bleManager, lightState] in
+                            switch lightState.mode {
+                            case .hsi:
+                                lightState.hsiIntensity = lightState.intensity
+                                bleManager.setHSI(hue: Int(lightState.hue),
+                                                saturation: Int(lightState.saturation),
+                                                intensity: Int(lightState.intensity))
+                            default:
+                                bleManager.setIntensity(lightState.intensity)
                             }
-                        default:
-                            bleManager.setIntensity(lightState.intensity)
                         }
                     }
+                    .allowsHitTesting(lightState.isOn)
+                    .opacity(lightState.isOn ? 1.0 : 0.4)
                 }
-                .allowsHitTesting(lightState.isOn)
-                .opacity(lightState.isOn ? 1.0 : 0.4)
             }
         }
         .padding()

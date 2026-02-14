@@ -477,11 +477,6 @@ class BLEManager: NSObject, ObservableObject {
 
         log("setPower(\(on)) mode=\(currentMode) target=0x\(String(format: "%04X", targetUnicastAddress))")
 
-        // If turning off during effects mode, stop the effect first
-        if !on && currentMode == "effects" {
-            stopEffect()
-        }
-
         let intensity = on ? max(currentIntensity, 10) : 0
         let payload: Data
 
