@@ -247,6 +247,243 @@ struct SleepProtocol: SidusProtocol {
     }
 }
 
+// MARK: - Effect Protocol (Command Type = 7)
+
+/// Controls all light effects via the Sidus vendor protocol.
+/// Handles simple effects (Candle, Fire, TV, CopCar, Party, Fireworks, Paparazzi, Lightning)
+/// and multi-mode effects (Strobe, Explosion, FaultyBulb, Pulsing, Welding) in CCT mode.
+struct SidusEffectProtocol: SidusProtocol {
+    let commandType: UInt8 = 7
+
+    var effectType: Int
+    var intensity: Int = 500  // 0-1000
+    var frq: Int = 8          // 0-15
+    var sleepMode: Int = 1
+
+    // CCT-related (for effects that use color temperature)
+    var cct: Int = 560        // cctKelvin / 10 (default 5600K)
+    var gm: Int = 100         // 0-200 (100 = neutral)
+    var gmFlag: Int = 0
+
+    // Simple effect params
+    var color: Int = 0        // CopCar (0-15)
+    var sat: Int = 100        // Party (0-100)
+    var type: Int = 0         // Fireworks type (0-255)
+
+    // Lightning params
+    var speed: Int = 8        // 0-15 for Lightning, 0-15 for Pulsing/FaultyBulb
+    var trigger: Int = 2      // 0-3
+
+    // Welding min field (0-127)
+    var min: Int = 0
+
+    // Multi-mode (always 0 = CCT for our purposes)
+    var effectMode: Int = 0
+
+    /// Convenience initializer for simple effect activation
+    init(effectType: Int, intensityPercent: Double = 50, frq: Int = 8, cctKelvin: Int = 5600) {
+        self.effectType = effectType
+        self.intensity = Int(round(intensityPercent * 10))
+        self.frq = frq
+        self.cct = cctKelvin / 10
+    }
+
+    func getSendData() -> Data {
+        var bits = [String]()
+
+        switch effectType {
+        case 3, 4, 5: // TV, Candle, Fire — simple with cct/cctType(10)
+            bits.append(toBinary(0, width: 8))
+            bits.append(toBinary(sleepMode, width: 1))
+            bits.append(toBinary(0, width: 20))
+            bits.append(toBinary(0, width: 11))
+            bits.append(toBinary(cct, width: 10))
+            bits.append(toBinary(frq, width: 4))
+            bits.append(toBinary(intensity, width: 10))
+            bits.append(toBinary(effectType, width: 8))
+            bits.append(toBinary(7, width: 7))
+            bits.append(toBinary(1, width: 1))
+
+        case 1: // Paparazzi — cct + gm fields
+            bits.append(toBinary(0, width: 8))
+            bits.append(toBinary(sleepMode, width: 1))
+            bits.append(toBinary(0, width: 20))
+            bits.append(toBinary(0, width: 1))
+            let cctHigh = (cct * 10 > 10000) ? 1 : 0
+            bits.append(toBinary(cctHigh, width: 1))
+            bits.append(toBinary(gmFlag, width: 1))
+            let (gmHighVal, gmVal) = computeGM()
+            bits.append(toBinary(gmHighVal, width: 1))
+            bits.append(toBinary(gmVal, width: 7))
+            bits.append(toBinary(computeCCTValue(), width: 10))
+            bits.append(toBinary(frq, width: 4))
+            bits.append(toBinary(intensity, width: 10))
+            bits.append(toBinary(effectType, width: 8))
+            bits.append(toBinary(7, width: 7))
+            bits.append(toBinary(1, width: 1))
+
+        case 2: // Lightning — cct + gm + speed + trigger
+            bits.append(toBinary(0, width: 8))
+            bits.append(toBinary(sleepMode, width: 1))
+            bits.append(toBinary(0, width: 15))
+            let cctHigh = (cct * 10 > 10000) ? 1 : 0
+            bits.append(toBinary(cctHigh, width: 1))
+            bits.append(toBinary(gmFlag, width: 1))
+            let (gmHighVal, gmVal) = computeGM()
+            bits.append(toBinary(gmHighVal, width: 1))
+            bits.append(toBinary(speed, width: 4))
+            bits.append(toBinary(trigger, width: 2))
+            bits.append(toBinary(gmVal, width: 7))
+            bits.append(toBinary(computeCCTValue(), width: 10))
+            bits.append(toBinary(frq, width: 4))
+            bits.append(toBinary(intensity, width: 10))
+            bits.append(toBinary(effectType, width: 8))
+            bits.append(toBinary(7, width: 7))
+            bits.append(toBinary(1, width: 1))
+
+        case 11: // CopCar — color(4)
+            bits.append(toBinary(0, width: 8))
+            bits.append(toBinary(sleepMode, width: 1))
+            bits.append(toBinary(0, width: 20))
+            bits.append(toBinary(0, width: 17))
+            bits.append(toBinary(color, width: 4))
+            bits.append(toBinary(frq, width: 4))
+            bits.append(toBinary(intensity, width: 10))
+            bits.append(toBinary(effectType, width: 8))
+            bits.append(toBinary(7, width: 7))
+            bits.append(toBinary(1, width: 1))
+
+        case 13: // Party — sat(7)
+            bits.append(toBinary(0, width: 8))
+            bits.append(toBinary(sleepMode, width: 1))
+            bits.append(toBinary(0, width: 20))
+            bits.append(toBinary(0, width: 14))
+            bits.append(toBinary(sat, width: 7))
+            bits.append(toBinary(frq, width: 4))
+            bits.append(toBinary(intensity, width: 10))
+            bits.append(toBinary(effectType, width: 8))
+            bits.append(toBinary(7, width: 7))
+            bits.append(toBinary(1, width: 1))
+
+        case 14: // Fireworks — type(8)
+            bits.append(toBinary(0, width: 8))
+            bits.append(toBinary(sleepMode, width: 1))
+            bits.append(toBinary(0, width: 20))
+            bits.append(toBinary(0, width: 13))
+            bits.append(toBinary(type, width: 8))
+            bits.append(toBinary(frq, width: 4))
+            bits.append(toBinary(intensity, width: 10))
+            bits.append(toBinary(effectType, width: 8))
+            bits.append(toBinary(7, width: 7))
+            bits.append(toBinary(1, width: 1))
+
+        case 6, 7: // Strobe, Explosion — multi-mode (CCT, no speed)
+            bits.append(toBinary(0, width: 8))
+            bits.append(toBinary(sleepMode, width: 1))
+            bits.append(toBinary(0, width: 15))
+            let cctHigh = (cct * 10 > 10000) ? 1 : 0
+            bits.append(toBinary(cctHigh, width: 1))
+            bits.append(toBinary(gmFlag, width: 1))
+            let (gmHighVal, gmVal) = computeGM()
+            bits.append(toBinary(gmHighVal, width: 1))
+            bits.append(toBinary(trigger, width: 2))
+            bits.append(toBinary(gmVal, width: 7))
+            bits.append(toBinary(computeCCTValue(), width: 10))
+            bits.append(toBinary(intensity, width: 10))
+            bits.append(toBinary(frq, width: 4))
+            bits.append(toBinary(effectMode, width: 4))
+            bits.append(toBinary(effectType, width: 8))
+            bits.append(toBinary(7, width: 7))
+            bits.append(toBinary(1, width: 1))
+
+        case 8, 9: // FaultyBulb, Pulsing — multi-mode (CCT, speed 4-bit)
+            bits.append(toBinary(0, width: 8))
+            bits.append(toBinary(sleepMode, width: 1))
+            bits.append(toBinary(0, width: 11))
+            let cctHigh = (cct * 10 > 10000) ? 1 : 0
+            bits.append(toBinary(cctHigh, width: 1))
+            bits.append(toBinary(gmFlag, width: 1))
+            let (gmHighVal, gmVal) = computeGM()
+            bits.append(toBinary(gmHighVal, width: 1))
+            bits.append(toBinary(speed, width: 4))
+            bits.append(toBinary(trigger, width: 2))
+            bits.append(toBinary(gmVal, width: 7))
+            bits.append(toBinary(computeCCTValue(), width: 10))
+            bits.append(toBinary(intensity, width: 10))
+            bits.append(toBinary(frq, width: 4))
+            bits.append(toBinary(effectMode, width: 4))
+            bits.append(toBinary(effectType, width: 8))
+            bits.append(toBinary(7, width: 7))
+            bits.append(toBinary(1, width: 1))
+
+        case 10: // Welding — multi-mode (CCT, min 7-bit)
+            bits.append(toBinary(0, width: 8))
+            bits.append(toBinary(sleepMode, width: 1))
+            bits.append(toBinary(0, width: 8))
+            let cctHigh = (cct * 10 > 10000) ? 1 : 0
+            bits.append(toBinary(cctHigh, width: 1))
+            bits.append(toBinary(gmFlag, width: 1))
+            let (gmHighVal, gmVal) = computeGM()
+            bits.append(toBinary(gmHighVal, width: 1))
+            bits.append(toBinary(min, width: 7))
+            bits.append(toBinary(trigger, width: 2))
+            bits.append(toBinary(gmVal, width: 7))
+            bits.append(toBinary(computeCCTValue(), width: 10))
+            bits.append(toBinary(intensity, width: 10))
+            bits.append(toBinary(frq, width: 4))
+            bits.append(toBinary(effectMode, width: 4))
+            bits.append(toBinary(effectType, width: 8))
+            bits.append(toBinary(7, width: 7))
+            bits.append(toBinary(1, width: 1))
+
+        case 15: // Effect Off
+            bits.append(toBinary(0, width: 8))
+            bits.append(toBinary(0, width: 1))
+            bits.append(toBinary(0, width: 20))
+            bits.append(toBinary(0, width: 20))
+            bits.append(toBinary(0, width: 15))
+            bits.append(toBinary(15, width: 8))
+            bits.append(toBinary(7, width: 7))
+            bits.append(toBinary(1, width: 1))
+
+        default:
+            // Unknown effect — send effect off
+            return SidusEffectProtocol(effectType: 15).getSendData()
+        }
+
+        var bitString = ""
+        for bit in bits {
+            bitString += String(bit.reversed())
+        }
+        return to10ByteArray(bitString)
+    }
+
+    // MARK: - Helpers
+
+    private func computeGM() -> (gmHigh: Int, gmValue: Int) {
+        var gmHigh = 0
+        var gmValue = gm
+        if gmFlag == 0 {
+            gmHigh = 0
+            gmValue = Int(round(Double(gm) / 10.0))
+        } else {
+            if gmValue > 100 {
+                gmHigh = 1
+                gmValue -= 100
+            } else {
+                gmHigh = 0
+            }
+        }
+        return (gmHigh, gmValue)
+    }
+
+    private func computeCCTValue() -> Int {
+        var cctValue = cct * 10
+        if cctValue > 10000 { cctValue -= 10000 }
+        return cctValue / 10
+    }
+}
+
 // MARK: - Sidus Status Parser (reverse of bit-packing)
 
 struct SidusLightStatus {

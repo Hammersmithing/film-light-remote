@@ -16,6 +16,13 @@ struct LightControlView: View {
                 ModePicker(selectedMode: $lightState.mode)
                     .allowsHitTesting(lightState.isOn)
                     .opacity(lightState.isOn ? 1.0 : 0.4)
+                    .onChange(of: lightState.mode) { newMode in
+                        // Stop any active effect when switching away from FX
+                        if newMode != .effects && lightState.selectedEffect != .none {
+                            lightState.selectedEffect = .none
+                            bleManager.stopEffect()
+                        }
+                    }
 
                 // Mode-specific controls
                 Group {
@@ -24,8 +31,8 @@ struct LightControlView: View {
                         CCTControls(lightState: lightState, cctRange: cctRange)
                     case .hsi:
                         HSIControls(lightState: lightState)
-                    default:
-                        EmptyView()
+                    case .effects:
+                        EffectsControls(lightState: lightState)
                     }
                 }
                 .allowsHitTesting(lightState.isOn)
@@ -174,6 +181,13 @@ struct PowerIntensitySection: View {
                             bleManager.setHSI(hue: Int(lightState.hue),
                                             saturation: Int(lightState.saturation),
                                             intensity: Int(lightState.intensity))
+                        case .effects:
+                            if lightState.selectedEffect != .none {
+                                bleManager.setEffect(
+                                    effectType: lightState.selectedEffect.rawValue,
+                                    intensityPercent: lightState.intensity,
+                                    frq: Int(lightState.effectFrequency))
+                            }
                         default:
                             bleManager.setIntensity(lightState.intensity)
                         }
@@ -337,6 +351,94 @@ struct HSIControls: View {
                             saturation: Int(lightState.saturation),
                             intensity: Int(lightState.hsiIntensity))
         }
+    }
+}
+
+// MARK: - Effects Controls
+struct EffectsControls: View {
+    @EnvironmentObject var bleManager: BLEManager
+    @ObservedObject var lightState: LightState
+    private let throttle = ThrottledSender()
+
+    private let columns = [
+        GridItem(.flexible()),
+        GridItem(.flexible()),
+        GridItem(.flexible())
+    ]
+
+    var body: some View {
+        VStack(spacing: 16) {
+            // Effect buttons grid
+            LazyVGrid(columns: columns, spacing: 12) {
+                ForEach(LightEffect.availableEffects) { effect in
+                    Button {
+                        if lightState.selectedEffect == effect {
+                            // Tap active effect to turn it off
+                            lightState.selectedEffect = .none
+                            bleManager.stopEffect()
+                        } else {
+                            lightState.selectedEffect = effect
+                            bleManager.setEffect(
+                                effectType: effect.rawValue,
+                                intensityPercent: lightState.intensity,
+                                frq: Int(lightState.effectFrequency))
+                        }
+                    } label: {
+                        VStack(spacing: 6) {
+                            Image(systemName: effect.icon)
+                                .font(.system(size: 24))
+                            Text(effect.name)
+                                .font(.caption2)
+                                .lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(
+                            lightState.selectedEffect == effect
+                                ? Color.orange.opacity(0.3)
+                                : Color(.systemGray5)
+                        )
+                        .foregroundColor(
+                            lightState.selectedEffect == effect
+                                ? .orange
+                                : .primary
+                        )
+                        .cornerRadius(10)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(lightState.selectedEffect == effect ? Color.orange : Color.clear, lineWidth: 2)
+                        )
+                    }
+                }
+            }
+
+            // Frequency slider
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Frequency")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text("\(Int(lightState.effectFrequency))")
+                        .font(.caption)
+                        .monospacedDigit()
+                }
+
+                Slider(value: $lightState.effectFrequency, in: 0...15, step: 1)
+                    .onChange(of: lightState.effectFrequency) { _ in
+                        guard lightState.selectedEffect != .none else { return }
+                        throttle.send { [bleManager, lightState] in
+                            bleManager.setEffect(
+                                effectType: lightState.selectedEffect.rawValue,
+                                intensityPercent: lightState.intensity,
+                                frq: Int(lightState.effectFrequency))
+                        }
+                    }
+            }
+        }
+        .padding()
+        .background(Color(.systemGray6))
+        .cornerRadius(12)
     }
 }
 

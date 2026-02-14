@@ -405,6 +405,11 @@ class BLEManager: NSObject, ObservableObject {
 
         log("setPower(\(on)) mode=\(currentMode) target=0x\(String(format: "%04X", targetUnicastAddress))")
 
+        // If turning off during effects mode, stop the effect first
+        if !on && currentMode == "effects" {
+            stopEffect()
+        }
+
         let intensity = on ? max(currentIntensity, 10) : 0
         let payload: Data
 
@@ -446,9 +451,47 @@ class BLEManager: NSObject, ObservableObject {
         }
     }
 
-    func setEffect(_ effectId: Int, speed: Int = 50) {
-        // Effects not yet implemented - requires effect protocol analysis
-        log("setEffect(\(effectId), speed: \(speed)) - Not yet implemented")
+    func setEffect(effectType: Int, intensityPercent: Double, frq: Int, cctKelvin: Int = 5600) {
+        currentMode = "effects"
+        guard let peripheral = connectedPeripheral else { return }
+
+        log("setEffect(type:\(effectType), intensity:\(intensityPercent)%, frq:\(frq)) target=0x\(String(format: "%04X", targetUnicastAddress))")
+
+        let cmd = SidusEffectProtocol(effectType: effectType, intensityPercent: intensityPercent, frq: frq, cctKelvin: cctKelvin)
+        let payload = cmd.getSendData()
+        var accessMessage: [UInt8] = [0x26]
+        accessMessage.append(contentsOf: payload)
+
+        if let char = meshProxyIn {
+            if let meshPDU = MeshCrypto.createStandardMeshPDU(
+                accessMessage: accessMessage,
+                dst: targetUnicastAddress
+            ) {
+                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
+                log("  Sent effect type=\(effectType) to 0x\(String(format: "%04X", targetUnicastAddress))")
+            }
+        }
+    }
+
+    func stopEffect() {
+        guard let peripheral = connectedPeripheral else { return }
+
+        log("stopEffect() target=0x\(String(format: "%04X", targetUnicastAddress))")
+
+        let cmd = SidusEffectProtocol(effectType: 15) // Effect Off
+        let payload = cmd.getSendData()
+        var accessMessage: [UInt8] = [0x26]
+        accessMessage.append(contentsOf: payload)
+
+        if let char = meshProxyIn {
+            if let meshPDU = MeshCrypto.createStandardMeshPDU(
+                accessMessage: accessMessage,
+                dst: targetUnicastAddress
+            ) {
+                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
+                log("  Sent effect OFF to 0x\(String(format: "%04X", targetUnicastAddress))")
+            }
+        }
     }
 
     /// Convert RGB to HSI

@@ -5,6 +5,7 @@ import SwiftUI
 enum LightMode: String, CaseIterable, Identifiable {
     case cct = "CCT"
     case hsi = "HSI"
+    case effects = "FX"
 
     var id: String { rawValue }
 
@@ -12,24 +13,28 @@ enum LightMode: String, CaseIterable, Identifiable {
         switch self {
         case .cct: return "thermometer"
         case .hsi: return "paintpalette"
+        case .effects: return "sparkles"
         }
     }
 }
 
 // MARK: - Light Effect
+/// Raw values match the Sidus protocol effectType IDs
 enum LightEffect: Int, CaseIterable, Identifiable {
     case none = 0
     case paparazzi = 1
-    case fireworks = 2
-    case lightning = 3
-    case tvFlicker = 4
-    case pulse = 5
+    case lightning = 2
+    case tvFlicker = 3
+    case candle = 4
+    case fire = 5
     case strobe = 6
     case explosion = 7
-    case welding = 8
-    case copCar = 9
-    case candle = 10
-    case fire = 11
+    case faultyBulb = 8
+    case pulsing = 9
+    case welding = 10
+    case copCar = 11
+    case party = 13
+    case fireworks = 14
 
     var id: Int { rawValue }
 
@@ -37,17 +42,43 @@ enum LightEffect: Int, CaseIterable, Identifiable {
         switch self {
         case .none: return "None"
         case .paparazzi: return "Paparazzi"
-        case .fireworks: return "Fireworks"
         case .lightning: return "Lightning"
         case .tvFlicker: return "TV Flicker"
-        case .pulse: return "Pulse"
-        case .strobe: return "Strobe"
-        case .explosion: return "Explosion"
-        case .welding: return "Welding"
-        case .copCar: return "Cop Car"
         case .candle: return "Candle"
         case .fire: return "Fire"
+        case .strobe: return "Strobe"
+        case .explosion: return "Explosion"
+        case .faultyBulb: return "Faulty Bulb"
+        case .pulsing: return "Pulsing"
+        case .welding: return "Welding"
+        case .copCar: return "Cop Car"
+        case .party: return "Party"
+        case .fireworks: return "Fireworks"
         }
+    }
+
+    var icon: String {
+        switch self {
+        case .none: return "xmark.circle"
+        case .paparazzi: return "camera.fill"
+        case .lightning: return "bolt.fill"
+        case .tvFlicker: return "tv"
+        case .candle: return "flame"
+        case .fire: return "flame.fill"
+        case .strobe: return "light.max"
+        case .explosion: return "burst.fill"
+        case .faultyBulb: return "lightbulb"
+        case .pulsing: return "waveform"
+        case .welding: return "sparkle"
+        case .copCar: return "light.beacon.max"
+        case .party: return "party.popper"
+        case .fireworks: return "fireworks"
+        }
+    }
+
+    /// Effects available on the Amaran 660c (excludes .none)
+    static var availableEffects: [LightEffect] {
+        allCases.filter { $0 != .none }
     }
 }
 
@@ -80,6 +111,7 @@ class LightState: ObservableObject {
     // Effects
     @Published var selectedEffect: LightEffect = .none
     @Published var effectSpeed: Double = 50.0 // 0-100
+    @Published var effectFrequency: Double = 8.0 // 0-15 (protocol frq field)
 
     // MARK: - Computed Properties
 
@@ -223,6 +255,10 @@ class LightState: ObservableObject {
         case .hsi:
             hue = preset.hue ?? 0
             saturation = preset.saturation ?? 100
+        case .effects:
+            if let eid = preset.effectId {
+                selectedEffect = LightEffect(rawValue: eid) ?? .none
+            }
         }
     }
 }
