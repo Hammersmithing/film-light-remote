@@ -1,7 +1,7 @@
 import Foundation
 
 /// A light that has been provisioned and saved by the user
-struct SavedLight: Codable, Identifiable, Equatable {
+struct SavedLight: Codable, Identifiable {
     let id: UUID
     var name: String
     let unicastAddress: UInt16

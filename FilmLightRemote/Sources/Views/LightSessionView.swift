@@ -36,8 +36,6 @@ struct LightSessionView: View {
             }
         }
         .onAppear {
-            // Clear stale status so it doesn't override loaded state
-            bleManager.lastLightStatus = nil
             lightState.load(forLightId: savedLight.id)
             // If the engine is already running for this light, reflect that in the UI
             if bleManager.faultyBulbEngine?.targetAddress == savedLight.unicastAddress {
@@ -51,9 +49,6 @@ struct LightSessionView: View {
         }
         .onReceive(bleManager.$connectionState) { state in
             if state == .ready {
-                // Sync power state to match what the app expects
-                bleManager.setPowerOn(lightState.isOn)
-
                 // Restart faulty bulb engine if it was actively playing,
                 // but skip if already running for this light (e.g. reopening session)
                 if lightState.mode == .effects && lightState.selectedEffect == .faultyBulb && lightState.effectPlaying {

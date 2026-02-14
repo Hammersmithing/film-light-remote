@@ -8,9 +8,6 @@ struct MyLightsView: View {
     @State private var selectedLight: SavedLight?
     @State private var renamingLight: SavedLight?
     @State private var renameText: String = ""
-    @State private var powerStates: [UUID: Bool] = [:]
-    /// Light waiting for connection to complete before toggling power
-    @State private var pendingPowerToggle: SavedLight?
 
     var body: some View {
         NavigationStack {
@@ -50,22 +47,8 @@ struct MyLightsView: View {
             .fullScreenCover(item: $selectedLight) { light in
                 LightSessionView(savedLight: light)
             }
-            .onChange(of: selectedLight) { light in
-                // When returning from a light session, refresh power states
-                if light == nil {
-                    reloadPowerStates()
-                }
-            }
             .onAppear {
                 reloadLights()
-            }
-            .onReceive(bleManager.$connectionState) { state in
-                if state == .ready, let light = pendingPowerToggle {
-                    let newState = powerStates[light.id] ?? true
-                    bleManager.targetUnicastAddress = light.unicastAddress
-                    bleManager.setPowerOn(newState)
-                    pendingPowerToggle = nil
-                }
             }
             .alert("Rename Light", isPresented: Binding(
                 get: { renamingLight != nil },
@@ -139,9 +122,7 @@ struct MyLightsView: View {
                 Button {
                     selectedLight = light
                 } label: {
-                    LightRow(light: light, isOn: powerStates[light.id] ?? true, onPowerToggle: {
-                        togglePower(for: light)
-                    }, onRename: {
+                    LightRow(light: light, onRename: {
                         renameText = light.name
                         renamingLight = light
                     }, onDelete: {
@@ -158,57 +139,14 @@ struct MyLightsView: View {
 
     private func reloadLights() {
         savedLights = KeyStorage.shared.savedLights
-        reloadPowerStates()
     }
 
-    private func reloadPowerStates() {
-        for light in savedLights {
-            let state = LightState()
-            state.load(forLightId: light.id)
-            powerStates[light.id] = state.isOn
-        }
-    }
-
-    private func togglePower(for light: SavedLight) {
-        let newState = !(powerStates[light.id] ?? true)
-        powerStates[light.id] = newState
-
-        // Persist the power state
-        let state = LightState()
-        state.load(forLightId: light.id)
-        state.isOn = newState
-        state.save(forLightId: light.id)
-
-        // If already connected, send immediately
-        if bleManager.connectedPeripheral != nil && bleManager.connectionState == .ready {
-            let previousTarget = bleManager.targetUnicastAddress
-            bleManager.targetUnicastAddress = light.unicastAddress
-            bleManager.setPowerOn(newState)
-            bleManager.targetUnicastAddress = previousTarget
-        } else {
-            // Need to connect first — update pending state (connection may already be in progress)
-            pendingPowerToggle = light
-            bleManager.targetUnicastAddress = light.unicastAddress
-            // Only start a new connection if not already connecting
-            let shouldConnect: Bool = {
-                switch bleManager.connectionState {
-                case .disconnected, .failed: return true
-                default: return false
-                }
-            }()
-            if shouldConnect {
-                bleManager.connectToKnownPeripheral(identifier: light.peripheralIdentifier)
-            }
-        }
-    }
 }
 
 // MARK: - Light Row
 
 private struct LightRow: View {
     let light: SavedLight
-    var isOn: Bool
-    var onPowerToggle: () -> Void
     var onRename: () -> Void
     var onDelete: () -> Void
 
@@ -216,7 +154,7 @@ private struct LightRow: View {
         HStack(spacing: 14) {
             Image(systemName: "lightbulb.fill")
                 .font(.title2)
-                .foregroundColor(isOn ? .yellow : .gray)
+                .foregroundColor(.yellow)
                 .frame(width: 36)
 
             VStack(alignment: .leading, spacing: 3) {
@@ -230,15 +168,6 @@ private struct LightRow: View {
             }
 
             Spacer()
-
-            Button {
-                onPowerToggle()
-            } label: {
-                Image(systemName: isOn ? "power.circle.fill" : "power.circle")
-                    .font(.title2)
-                    .foregroundColor(isOn ? .green : .gray)
-            }
-            .buttonStyle(.plain)
 
             Menu {
                 Button {

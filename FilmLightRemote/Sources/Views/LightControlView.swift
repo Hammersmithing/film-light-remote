@@ -303,7 +303,6 @@ struct CCTControls: View {
                     Slider(value: $lightState.cctKelvin, in: cctRange, step: 100)
                         .tint(.clear)
                         .onChange(of: lightState.cctKelvin) { _ in
-                            guard lightState.isOn else { return }
                             throttle.send { [bleManager, lightState] in
                                 bleManager.setCCT(Int(lightState.cctKelvin))
                             }
@@ -384,7 +383,6 @@ struct HSIControls: View {
     }
 
     private func sendHSI() {
-        guard lightState.isOn else { return }
         throttle.send { [bleManager, lightState] in
             bleManager.setHSI(hue: Int(lightState.hue),
                             saturation: Int(lightState.saturation),
