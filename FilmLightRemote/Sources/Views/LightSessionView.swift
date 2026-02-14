@@ -40,8 +40,8 @@ struct LightSessionView: View {
         }
         .onReceive(bleManager.$connectionState) { state in
             if state == .ready {
-                // Restart faulty bulb engine if it was the active effect
-                if lightState.mode == .effects && lightState.selectedEffect == .faultyBulb {
+                // Restart faulty bulb engine if it was actively playing
+                if lightState.mode == .effects && lightState.selectedEffect == .faultyBulb && lightState.effectPlaying {
                     bleManager.startFaultyBulb(lightState: lightState)
                 }
             }

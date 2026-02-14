@@ -110,6 +110,7 @@ class LightState: ObservableObject {
 
     // Effects
     @Published var selectedEffect: LightEffect = .none
+    @Published var effectPlaying: Bool = false
     @Published var effectSpeed: Double = 50.0 // 0-100
     @Published var effectFrequency: Double = 8.0 // 0-15 (protocol frq field)
     @Published var copCarColor: Int = 0 // 0=Red, 1=Blue, 2=R+B, 3=B+W, 4=R+B+W
@@ -231,6 +232,7 @@ class LightState: ObservableObject {
         blue = state.blue
         white = state.white
         selectedEffect = LightEffect(rawValue: state.effectId) ?? .none
+        effectPlaying = false // Always start stopped — user must press play
         effectSpeed = state.effectSpeed
     }
 

@@ -19,8 +19,11 @@ struct LightControlView: View {
                     .onChange(of: lightState.mode) { newMode in
                         // Stop any active effect when switching away from FX
                         if newMode != .effects && lightState.selectedEffect != .none {
+                            if lightState.effectPlaying {
+                                lightState.effectPlaying = false
+                                bleManager.stopEffect()
+                            }
                             lightState.selectedEffect = .none
-                            bleManager.stopEffect()
                         }
                     }
 
@@ -182,7 +185,7 @@ struct PowerIntensitySection: View {
                                             saturation: Int(lightState.saturation),
                                             intensity: Int(lightState.intensity))
                         case .effects:
-                            if lightState.selectedEffect != .none {
+                            if lightState.selectedEffect != .none && lightState.effectPlaying && lightState.selectedEffect != .faultyBulb {
                                 bleManager.setEffect(
                                     effectType: lightState.selectedEffect.rawValue,
                                     intensityPercent: lightState.intensity,
@@ -382,19 +385,15 @@ struct EffectsControls: View {
                         ) {
                             withAnimation(.easeInOut(duration: 0.2)) {
                                 if lightState.selectedEffect == effect {
+                                    // Deselect — stop if playing
+                                    stopCurrentEffect()
+                                    lightState.effectPlaying = false
                                     lightState.selectedEffect = .none
-                                    bleManager.stopEffect()
                                 } else {
-                                    // Stop previous faulty bulb if switching away
-                                    if lightState.selectedEffect == .faultyBulb {
-                                        bleManager.stopFaultyBulb()
-                                    }
+                                    // Switch to new effect — stop previous, don't auto-play
+                                    stopCurrentEffect()
+                                    lightState.effectPlaying = false
                                     lightState.selectedEffect = effect
-                                    if effect == .faultyBulb {
-                                        bleManager.startFaultyBulb(lightState: lightState)
-                                    } else {
-                                        sendCurrentEffect()
-                                    }
                                 }
                             }
                         }
@@ -412,7 +411,9 @@ struct EffectsControls: View {
                         effect: lightState.selectedEffect,
                         lightState: lightState,
                         cctRange: cctRange,
-                        onChanged: { sendCurrentEffect() }
+                        onPlay: { playCurrentEffect() },
+                        onStop: { stopCurrentEffect() },
+                        onChanged: { if lightState.effectPlaying { sendCurrentEffect() } }
                     )
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
@@ -423,8 +424,29 @@ struct EffectsControls: View {
         .cornerRadius(12)
     }
 
+    private func playCurrentEffect() {
+        guard lightState.selectedEffect != .none else { return }
+        lightState.effectPlaying = true
+        if lightState.selectedEffect == .faultyBulb {
+            bleManager.startFaultyBulb(lightState: lightState)
+        } else {
+            sendCurrentEffect()
+        }
+    }
+
+    private func stopCurrentEffect() {
+        guard lightState.effectPlaying else { return }
+        lightState.effectPlaying = false
+        if lightState.selectedEffect == .faultyBulb {
+            bleManager.stopFaultyBulb()
+        } else {
+            bleManager.stopEffect()
+        }
+    }
+
     private func sendCurrentEffect() {
         guard lightState.selectedEffect != .none else { return }
+        guard lightState.effectPlaying else { return }
         // Faulty Bulb is handled by software engine — don't send hardware effect
         guard lightState.selectedEffect != .faultyBulb else { return }
         throttle.send { [bleManager, lightState] in
@@ -471,10 +493,34 @@ private struct EffectDetailPanel: View {
     let effect: LightEffect
     @ObservedObject var lightState: LightState
     var cctRange: ClosedRange<Double> = 2700...6500
+    var onPlay: () -> Void
+    var onStop: () -> Void
     var onChanged: () -> Void
 
     var body: some View {
         VStack(spacing: 12) {
+            // Play / Stop button
+            Button {
+                if lightState.effectPlaying {
+                    onStop()
+                } else {
+                    onPlay()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: lightState.effectPlaying ? "stop.fill" : "play.fill")
+                        .font(.system(size: 16))
+                    Text(lightState.effectPlaying ? "Stop" : "Play")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(lightState.effectPlaying ? Color.red.opacity(0.3) : Color.green.opacity(0.3))
+                .foregroundColor(lightState.effectPlaying ? .red : .green)
+                .cornerRadius(8)
+            }
+
             switch effect {
             case .copCar:
                 CopCarDetail(lightState: lightState, onChanged: onChanged)
@@ -791,6 +837,7 @@ private struct FaultyBulbDetail: View {
 
     /// Immediately send the current color at the current intensity so slider changes are instant
     private func sendColorNow() {
+        guard lightState.effectPlaying else { return }
         throttle.send { [bleManager, lightState] in
             let intensity = lightState.intensity
             if lightState.faultyBulbColorMode == .hsi {
