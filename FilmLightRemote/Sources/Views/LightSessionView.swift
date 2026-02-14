@@ -40,8 +40,10 @@ struct LightSessionView: View {
         }
         .onReceive(bleManager.$connectionState) { state in
             if state == .ready {
-                // State read-back not yet supported — don't poll
-                // (polling re-sends commands and interferes with power off)
+                // Restart faulty bulb engine if it was the active effect
+                if lightState.mode == .effects && lightState.selectedEffect == .faultyBulb {
+                    bleManager.startFaultyBulb(lightState: lightState)
+                }
             }
         }
         .onReceive(bleManager.$lastLightStatus.compactMap { $0 }) { status in

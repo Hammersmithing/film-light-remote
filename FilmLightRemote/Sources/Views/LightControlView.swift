@@ -384,8 +384,16 @@ struct EffectsControls: View {
                                     lightState.selectedEffect = .none
                                     bleManager.stopEffect()
                                 } else {
+                                    // Stop previous faulty bulb if switching away
+                                    if lightState.selectedEffect == .faultyBulb {
+                                        bleManager.stopFaultyBulb()
+                                    }
                                     lightState.selectedEffect = effect
-                                    sendCurrentEffect()
+                                    if effect == .faultyBulb {
+                                        bleManager.startFaultyBulb(lightState: lightState)
+                                    } else {
+                                        sendCurrentEffect()
+                                    }
                                 }
                             }
                         }
@@ -587,116 +595,10 @@ private struct RangeSlider: View {
     }
 }
 
-// MARK: - Faulty Bulb Software Engine
-/// Sends random intensity values within a range at irregular intervals,
-/// simulating a realistic faulty/flickering bulb effect.
-/// Supports smooth fading between intensity levels via the transition parameter.
-private class FaultyBulbEngine {
-    private var workItem: DispatchWorkItem?
-    private weak var bleManager: BLEManager?
-    private weak var lightState: LightState?
-    private var currentIntensity: Double = 50.0
-
-    func start(bleManager: BLEManager, lightState: LightState) {
-        stop()
-        self.bleManager = bleManager
-        self.lightState = lightState
-        self.currentIntensity = lightState.intensity
-        pickNewTarget()
-    }
-
-    func stop() {
-        workItem?.cancel()
-        workItem = nil
-        bleManager = nil
-        lightState = nil
-    }
-
-    /// Build the discrete intensity levels from the range and point count
-    private func discretePoints() -> [Double] {
-        guard let ls = lightState else { return [50] }
-        let lo = min(ls.faultyBulbMin, ls.faultyBulbMax)
-        let hi = max(ls.faultyBulbMin, ls.faultyBulbMax)
-        let n = max(2, Int(ls.faultyBulbPoints))
-        if n <= 1 || lo == hi { return [lo] }
-        return (0..<n).map { i in
-            lo + (hi - lo) * Double(i) / Double(n - 1)
-        }
-    }
-
-    /// Pick a new random target and either jump or fade to it
-    private func pickNewTarget() {
-        guard let ls = lightState else { return }
-
-        let points = discretePoints()
-        // Pick a random point, avoiding the same one twice in a row
-        var target = points.randomElement() ?? ls.faultyBulbMin
-        if points.count > 1 {
-            while abs(target - currentIntensity) < 0.5 {
-                target = points.randomElement() ?? ls.faultyBulbMin
-            }
-        }
-        let transition = ls.faultyBulbTransition
-
-        if transition < 0.5 {
-            // Instant: jump directly
-            currentIntensity = target
-            bleManager?.setIntensity(target)
-            scheduleNextTarget()
-        } else {
-            // Fade: interpolate over duration
-            // transition 1 = ~0.15s, 15 = ~2s
-            let fadeDuration = transition * 0.13
-            let stepInterval: Double = 0.08
-            let totalSteps = max(1, Int(fadeDuration / stepInterval))
-            fadeToTarget(target: target, stepsRemaining: totalSteps, totalSteps: totalSteps, stepInterval: stepInterval)
-        }
-    }
-
-    /// Incrementally step toward the target intensity
-    private func fadeToTarget(target: Double, stepsRemaining: Int, totalSteps: Int, stepInterval: Double) {
-        guard stepsRemaining > 0 else {
-            currentIntensity = target
-            bleManager?.setIntensity(target)
-            scheduleNextTarget()
-            return
-        }
-
-        // Linear interpolation step
-        let progress = 1.0 - (Double(stepsRemaining) / Double(totalSteps))
-        let startIntensity = currentIntensity
-        let interpolated = startIntensity + (target - startIntensity) * (1.0 / Double(stepsRemaining))
-        currentIntensity = interpolated
-        bleManager?.setIntensity(interpolated)
-
-        let work = DispatchWorkItem { [weak self] in
-            self?.fadeToTarget(target: target, stepsRemaining: stepsRemaining - 1, totalSteps: totalSteps, stepInterval: stepInterval)
-        }
-        workItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + stepInterval, execute: work)
-    }
-
-    /// Wait a random interval then pick the next target
-    private func scheduleNextTarget() {
-        guard let ls = lightState else { return }
-
-        let speed = ls.effectFrequency
-        let baseInterval = max(0.06, 1.2 - speed * 0.08)
-        let interval = baseInterval * Double.random(in: 0.2...1.8)
-
-        let work = DispatchWorkItem { [weak self] in
-            self?.pickNewTarget()
-        }
-        workItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + interval, execute: work)
-    }
-}
-
 // MARK: - Faulty Bulb Detail
 private struct FaultyBulbDetail: View {
     @EnvironmentObject var bleManager: BLEManager
     @ObservedObject var lightState: LightState
-    @State private var engine = FaultyBulbEngine()
 
     var body: some View {
         VStack(spacing: 12) {
@@ -762,12 +664,6 @@ private struct FaultyBulbDetail: View {
 
                 Slider(value: $lightState.effectFrequency, in: 0...15, step: 1)
             }
-        }
-        .onAppear {
-            engine.start(bleManager: bleManager, lightState: lightState)
-        }
-        .onDisappear {
-            engine.stop()
         }
     }
 }
