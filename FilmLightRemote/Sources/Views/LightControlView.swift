@@ -180,6 +180,8 @@ struct PowerIntensitySection: View {
                                     bleManager.startFaultyBulb(lightState: lightState)
                                 } else if lightState.selectedEffect == .paparazzi && lightState.paparazziColorMode == .hsi {
                                     bleManager.startPaparazzi(lightState: lightState)
+                                } else if lightState.selectedEffect == .pulsing {
+                                    bleManager.startSoftwareEffect(lightState: lightState)
                                 } else if lightState.selectedEffect != .none && lightState.selectedEffect != .copCar && lightState.effectColorMode == .hsi {
                                     bleManager.startSoftwareEffect(lightState: lightState)
                                 } else if lightState.selectedEffect != .none {
@@ -462,13 +464,13 @@ struct EffectsControls: View {
         .cornerRadius(12)
     }
 
-    /// Whether the current effect needs a software engine (HSI on effects without native HSI)
+    /// Whether the current effect needs a software engine
     private var needsSoftwareEngine: Bool {
-        guard currentEffectIsHSI else { return false }
         switch lightState.selectedEffect {
-        case .faultyBulb: return false // has its own engine with HSI support
+        case .faultyBulb: return false // has its own engine
         case .copCar: return false     // uses its own color system
-        default: return true
+        case .pulsing: return true     // always software for range/shape controls
+        default: return currentEffectIsHSI
         }
     }
 
