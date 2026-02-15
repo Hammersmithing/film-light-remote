@@ -129,6 +129,7 @@ class LightState: ObservableObject {
     @Published var faultyBulbColorMode: LightMode = .cct // .cct or .hsi for flicker color
     var warmestCCT: Double = 2700 // Set at runtime from cctRange lower bound
     @Published var paparazziColorMode: LightMode = .cct // .cct or .hsi for paparazzi color
+    @Published var strobeHz: Double = 4.0 // 1-12 flashes per second
     @Published var strobeColorMode: LightMode = .cct // .cct or .hsi for strobe color
     @Published var effectColorMode: LightMode = .cct // .cct or .hsi for other effects
 

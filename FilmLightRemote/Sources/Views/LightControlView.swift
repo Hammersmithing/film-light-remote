@@ -180,7 +180,7 @@ struct PowerIntensitySection: View {
                                     bleManager.startFaultyBulb(lightState: lightState)
                                 } else if lightState.selectedEffect == .paparazzi && lightState.paparazziColorMode == .hsi {
                                     bleManager.startPaparazzi(lightState: lightState)
-                                } else if lightState.selectedEffect == .pulsing {
+                                } else if lightState.selectedEffect == .pulsing || lightState.selectedEffect == .strobe {
                                     bleManager.startSoftwareEffect(lightState: lightState)
                                 } else if lightState.selectedEffect != .none && lightState.selectedEffect != .copCar && lightState.effectColorMode == .hsi {
                                     bleManager.startSoftwareEffect(lightState: lightState)
@@ -470,6 +470,7 @@ struct EffectsControls: View {
         case .faultyBulb: return false // has its own engine
         case .copCar: return false     // uses its own color system
         case .pulsing: return true     // always software for range/shape controls
+        case .strobe: return true      // always software for clean on/off
         default: return currentEffectIsHSI
         }
     }
@@ -631,7 +632,7 @@ private struct EffectDetailPanel: View {
             case .paparazzi:
                 ColorModeEffectDetail(lightState: lightState, cctRange: cctRange, onChanged: onChanged, onModeChanged: onModeChanged, colorMode: $lightState.paparazziColorMode)
             case .strobe:
-                ColorModeEffectDetail(lightState: lightState, cctRange: cctRange, onChanged: onChanged, onModeChanged: onModeChanged, colorMode: $lightState.strobeColorMode)
+                StrobeDetail(lightState: lightState, cctRange: cctRange, onChanged: onChanged, onModeChanged: onModeChanged)
             case .pulsing:
                 PulsingDetail(lightState: lightState, cctRange: cctRange, onChanged: onChanged, onModeChanged: onModeChanged)
             default:
@@ -1060,6 +1061,7 @@ private struct ColorModeEffectDetail: View {
     var onChanged: () -> Void
     var onModeChanged: () -> Void = {}
     @Binding var colorMode: LightMode
+    var showFrequency: Bool = true
     private let throttle = ThrottledSender()
 
     var body: some View {
@@ -1149,7 +1151,42 @@ private struct ColorModeEffectDetail: View {
                 }
             }
 
-            FrequencySlider(lightState: lightState, onChanged: onChanged)
+            if showFrequency {
+                FrequencySlider(lightState: lightState, onChanged: onChanged)
+            }
+        }
+    }
+}
+
+// MARK: - Strobe Detail
+private struct StrobeDetail: View {
+    @EnvironmentObject var bleManager: BLEManager
+    @ObservedObject var lightState: LightState
+    var cctRange: ClosedRange<Double> = 2700...6500
+    var onChanged: () -> Void
+    var onModeChanged: () -> Void = {}
+
+    var body: some View {
+        VStack(spacing: 12) {
+            ColorModeEffectDetail(lightState: lightState, cctRange: cctRange, onChanged: onChanged, onModeChanged: onModeChanged, colorMode: $lightState.strobeColorMode, showFrequency: false)
+
+            // Strobe rate slider: 1-12 Hz
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Rate")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text("\(Int(lightState.strobeHz)) Hz")
+                        .font(.caption)
+                        .monospacedDigit()
+                }
+
+                Slider(value: $lightState.strobeHz, in: 1...12, step: 1)
+                    .onChange(of: lightState.strobeHz) { _ in
+                        bleManager.softwareEffectEngine?.updateParams(from: lightState)
+                    }
+            }
         }
     }
 }

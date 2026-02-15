@@ -548,6 +548,25 @@ class BLEManager: NSObject, ObservableObject {
         }
     }
 
+    /// Send a dedicated SleepProtocol (commandType=12) for instant on/off — no color data to process.
+    func sendSleep(_ on: Bool, targetAddress: UInt16? = nil) {
+        guard let peripheral = connectedPeripheral else { return }
+        let dst = targetAddress ?? targetUnicastAddress
+        let cmd = SleepProtocol(on: on)
+        let payload = cmd.getSendData()
+        var accessMessage: [UInt8] = [0x26]
+        accessMessage.append(contentsOf: payload)
+
+        if let char = meshProxyIn {
+            if let meshPDU = MeshCrypto.createStandardMeshPDU(
+                accessMessage: accessMessage,
+                dst: dst
+            ) {
+                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
+            }
+        }
+    }
+
     func stopEffect() {
         stopFaultyBulb()
         stopPaparazzi()
@@ -1660,6 +1679,7 @@ class SoftwareEffectEngine {
     private var pulsingMin: Double = 0.0
     private var pulsingMax: Double = 100.0
     private var pulsingShape: Double = 50.0
+    private var strobeHz: Double = 4.0
     private var currentIntensity: Double = 0.0
     private var phaseTime: Double = 0.0 // for pulsing sine wave
 
@@ -1670,10 +1690,20 @@ class SoftwareEffectEngine {
         updateParams(from: lightState)
         currentIntensity = intensity
         phaseTime = 0
+        // For strobe: start dark, then begin flash loop
+        if effectType == .strobe {
+            sendColor(intensity: 0, sleepMode: 0)
+            strobeRunning = true
+            queue.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                self?.strobeFlash()
+            }
+            return
+        }
         scheduleNext()
     }
 
     func stop() {
+        strobeRunning = false
         workItem?.cancel()
         workItem = nil
         bleManager = nil
@@ -1681,7 +1711,10 @@ class SoftwareEffectEngine {
 
     func updateParams(from lightState: LightState) {
         effectType = lightState.selectedEffect
-        colorMode = lightState.effectColorMode
+        switch effectType {
+        case .strobe: colorMode = lightState.strobeColorMode
+        default: colorMode = lightState.effectColorMode
+        }
         cctKelvin = Int(lightState.cctKelvin)
         hue = Int(lightState.hue)
         saturation = Int(lightState.saturation)
@@ -1691,6 +1724,7 @@ class SoftwareEffectEngine {
         pulsingMin = lightState.pulsingMin
         pulsingMax = lightState.pulsingMax
         pulsingShape = lightState.pulsingShape
+        strobeHz = lightState.strobeHz
     }
 
     private func scheduleNext() {
@@ -1717,6 +1751,9 @@ class SoftwareEffectEngine {
         case .explosion:
             // Fast decay steps
             interval = 0.04
+        case .strobe:
+            // Strobe: full cycle = 1/Hz, this is the OFF half
+            interval = 0.5 / strobeHz
         case .welding:
             // Bursts with pauses
             let baseGap = 1.5 * pow(0.80, frequency)
@@ -1824,6 +1861,10 @@ class SoftwareEffectEngine {
             }
             scheduleNext()
 
+        case .strobe:
+            strobeFlash()
+            return
+
         case .welding:
             // Bright arc burst then off
             let burstCount = Int.random(in: 2...5)
@@ -1835,6 +1876,32 @@ class SoftwareEffectEngine {
             currentIntensity = target
             sendColor(intensity: target, sleepMode: 1)
             scheduleNext()
+        }
+    }
+
+    private var strobeRunning = false
+
+    private func strobeFlash() {
+        guard bleManager != nil, strobeRunning else { return }
+        let flashDuration = 0.010 // 10ms pop
+        let cyclePeriod = 1.0 / strobeHz
+        let offDuration = max(0.01, cyclePeriod - flashDuration)
+
+        // ON — full intensity
+        sendColor(intensity: intensity, sleepMode: 1)
+        currentIntensity = intensity
+
+        // Schedule OFF after flash duration
+        queue.asyncAfter(deadline: .now() + flashDuration) { [weak self] in
+            guard let self = self, self.strobeRunning, self.bleManager != nil else { return }
+            // OFF — zero intensity
+            self.sendColor(intensity: 0, sleepMode: 0)
+            self.currentIntensity = 0
+
+            // Schedule next flash after off duration
+            self.queue.asyncAfter(deadline: .now() + offDuration) { [weak self] in
+                self?.strobeFlash()
+            }
         }
     }
 
