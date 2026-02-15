@@ -133,7 +133,8 @@ class LightState: ObservableObject {
     @Published var strobeColorMode: LightMode = .cct // .cct or .hsi for strobe color
     @Published var effectColorMode: LightMode = .cct // .cct or .hsi for other effects
     @Published var partyColors: [Double] = [0, 60, 120, 180, 240, 300] // hue values 0-360
-    @Published var partyTransition: Double = 0.0 // 0=snap, 100=full sweep between colors
+    @Published var partyTransition: Double = 50.0 // 0=snap, 100=full sweep between colors
+    @Published var partyHueBias: Double = 0.0 // -180 to +180, shifts all party hues
 
     // MARK: - Computed Properties
 
@@ -224,7 +225,8 @@ class LightState: ObservableObject {
             blue: blue, white: white,
             effectId: selectedEffect.rawValue, effectSpeed: effectSpeed,
             partyColors: partyColors,
-            partyTransition: partyTransition
+            partyTransition: partyTransition,
+            partyHueBias: partyHueBias
         )
         if let encoded = try? JSONEncoder().encode(data) {
             UserDefaults.standard.set(encoded, forKey: Self.statePrefix + id.uuidString)
@@ -255,6 +257,9 @@ class LightState: ObservableObject {
         if let transition = state.partyTransition {
             partyTransition = transition
         }
+        if let bias = state.partyHueBias {
+            partyHueBias = bias
+        }
     }
 
     private struct PersistedState: Codable {
@@ -274,6 +279,7 @@ class LightState: ObservableObject {
         var effectSpeed: Double
         var partyColors: [Double]?
         var partyTransition: Double?
+        var partyHueBias: Double?
     }
 
     // MARK: - Presets

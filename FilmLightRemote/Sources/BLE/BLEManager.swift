@@ -1685,6 +1685,7 @@ class SoftwareEffectEngine {
     private var partyColors: [Double] = [0, 60, 120, 180, 240, 300]
     private var partyColorIndex: Int = 0
     private var partyTransition: Double = 0.0
+    private var partyHueBias: Double = 0.0
 
     func start(bleManager: BLEManager, lightState: LightState, targetAddress: UInt16) {
         stop()
@@ -1736,6 +1737,7 @@ class SoftwareEffectEngine {
             }
         }
         partyTransition = lightState.partyTransition
+        partyHueBias = lightState.partyHueBias
     }
 
     private func scheduleNext() {
@@ -1882,7 +1884,7 @@ class SoftwareEffectEngine {
         case .party:
             // Cycle through user-defined hue list
             guard !partyColors.isEmpty else { scheduleNext(); return }
-            let currentHue = partyColors[partyColorIndex]
+            let currentHue = biasedHue(partyColors[partyColorIndex])
             let nextIndex = (partyColorIndex + 1) % partyColors.count
             partyColorIndex = nextIndex
             sendColor(intensity: intensity, sleepMode: 1, hueOverride: Int(currentHue))
@@ -1895,7 +1897,7 @@ class SoftwareEffectEngine {
                 let transitionFrac = partyTransition / 100.0
                 let holdTime = totalInterval * (1 - transitionFrac)
                 let sweepTime = totalInterval * transitionFrac
-                let nextHue = partyColors[nextIndex]
+                let nextHue = biasedHue(partyColors[nextIndex])
 
                 let holdWork = DispatchWorkItem { [weak self] in
                     self?.sweepPartyHue(from: currentHue, to: nextHue, duration: sweepTime)
@@ -1968,6 +1970,14 @@ class SoftwareEffectEngine {
         }
         workItem = work
         queue.asyncAfter(deadline: .now() + onTime, execute: work)
+    }
+
+    /// Apply hue bias, wrapping into 0-360
+    private func biasedHue(_ hue: Double) -> Double {
+        var h = hue + partyHueBias
+        h = h.truncatingRemainder(dividingBy: 360)
+        if h < 0 { h += 360 }
+        return h
     }
 
     /// Sweep hue from startHue to endHue over duration, taking the shortest path around the wheel

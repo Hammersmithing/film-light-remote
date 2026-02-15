@@ -1201,8 +1201,26 @@ private struct PartyDetail: View {
     var onChanged: () -> Void
     @State private var editingIndex: Int? = nil
 
+    private let throttle = ThrottledSender()
+
     var body: some View {
         VStack(spacing: 12) {
+            // Intensity slider
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Intensity")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text("\(Int(lightState.intensity))%")
+                        .font(.caption)
+                        .monospacedDigit()
+                }
+
+                Slider(value: $lightState.intensity, in: 0...100, step: 1)
+                    .onChange(of: lightState.intensity) { _ in onChanged() }
+            }
+
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text("Saturation")
@@ -1236,6 +1254,32 @@ private struct PartyDetail: View {
                     .onChange(of: lightState.partyTransition) { _ in onChanged() }
             }
 
+            // Hue bias slider — shifts all colors around the wheel
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Bias")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text(Int(lightState.partyHueBias) == 0 ? "0" : (lightState.partyHueBias > 0 ? "+\(Int(lightState.partyHueBias))" : "\(Int(lightState.partyHueBias))"))
+                        .font(.caption)
+                        .monospacedDigit()
+                }
+
+                Slider(
+                    value: Binding(
+                        get: { lightState.partyHueBias },
+                        set: { newValue in
+                            // Snap to 0 when within 5
+                            lightState.partyHueBias = abs(newValue) < 5 ? 0 : newValue
+                        }
+                    ),
+                    in: -180...180,
+                    step: 1
+                )
+                .onChange(of: lightState.partyHueBias) { _ in onChanged() }
+            }
+
             // Color list
             VStack(alignment: .leading, spacing: 8) {
                 Text("Colors")
@@ -1244,15 +1288,16 @@ private struct PartyDetail: View {
 
                 ForEach(Array(lightState.partyColors.enumerated()), id: \.offset) { index, hueValue in
                     if index < lightState.partyColors.count {
+                    let displayHue = ((hueValue + lightState.partyHueBias).truncatingRemainder(dividingBy: 360) + 360).truncatingRemainder(dividingBy: 360)
                     VStack(spacing: 4) {
                         HStack(spacing: 10) {
-                            // Color circle
+                            // Color circle (shows biased color)
                             Circle()
-                                .fill(Color(hue: hueValue / 360.0, saturation: 1.0, brightness: 1.0))
+                                .fill(Color(hue: displayHue / 360.0, saturation: 1.0, brightness: 1.0))
                                 .frame(width: 28, height: 28)
 
-                            // Hue label
-                            Text("\(Int(hueValue))")
+                            // Hue label (shows biased value)
+                            Text("\(Int(displayHue))")
                                 .font(.subheadline)
                                 .monospacedDigit()
                                 .frame(width: 36, alignment: .leading)
