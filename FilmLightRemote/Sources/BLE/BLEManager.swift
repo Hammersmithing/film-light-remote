@@ -1431,7 +1431,7 @@ class FaultyBulbEngine {
             // We're on a low point — recovery slider controls how quickly we return to high.
             // recovery=100 → always return to high (instant recovery)
             // recovery=0 → stay at low points (elongated dips)
-            let returnChance = pow(recoveryValue / 100.0, 2.0)
+            let returnChance = 0.10 + 0.90 * pow(recoveryValue / 100.0, 2.0)
             if Double.random(in: 0...1) < returnChance {
                 target = hi
             } else {
