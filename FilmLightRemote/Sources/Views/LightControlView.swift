@@ -181,7 +181,13 @@ struct PowerIntensitySection: View {
                                 } else if lightState.selectedEffect == .paparazzi && lightState.paparazziColorMode == .hsi {
                                     bleManager.startPaparazzi(lightState: lightState)
                                 } else if lightState.selectedEffect != .none {
-                                    let isHSI = lightState.selectedEffect == .strobe && lightState.strobeColorMode == .hsi
+                                    let isHSI: Bool = {
+                                        switch lightState.selectedEffect {
+                                        case .strobe: return lightState.strobeColorMode == .hsi
+                                        case .paparazzi: return lightState.paparazziColorMode == .hsi
+                                        default: return lightState.effectColorMode == .hsi
+                                        }
+                                    }()
                                     bleManager.setEffect(
                                         effectType: lightState.selectedEffect.rawValue,
                                         intensityPercent: lightState.intensity,
@@ -466,6 +472,15 @@ struct EffectsControls: View {
         lightState.selectedEffect == .paparazzi && lightState.paparazziColorMode == .hsi
     }
 
+    /// Resolve the color mode for the current effect
+    private var currentEffectIsHSI: Bool {
+        switch lightState.selectedEffect {
+        case .strobe: return lightState.strobeColorMode == .hsi
+        case .paparazzi: return lightState.paparazziColorMode == .hsi
+        default: return lightState.effectColorMode == .hsi
+        }
+    }
+
     private func playCurrentEffect() {
         guard lightState.selectedEffect != .none else { return }
         lightState.effectPlaying = true
@@ -491,20 +506,17 @@ struct EffectsControls: View {
     /// Called when the color mode picker changes while playing — restart with the right method.
     private func restartCurrentEffect() {
         guard lightState.effectPlaying else { return }
-        // Stop whatever is running (hardware or engine)
         bleManager.stopEffect()
-        // Restart with the new mode
         if isPaparazziEngine {
             bleManager.startPaparazzi(lightState: lightState)
         } else {
-            let isHSI = lightState.selectedEffect == .strobe && lightState.strobeColorMode == .hsi
             bleManager.setEffect(
                 effectType: lightState.selectedEffect.rawValue,
                 intensityPercent: lightState.intensity,
                 frq: Int(lightState.effectFrequency),
                 cctKelvin: Int(lightState.cctKelvin),
                 copCarColor: lightState.copCarColor,
-                effectMode: isHSI ? 1 : 0,
+                effectMode: currentEffectIsHSI ? 1 : 0,
                 hue: Int(lightState.hue),
                 saturation: Int(lightState.saturation))
         }
@@ -517,11 +529,16 @@ struct EffectsControls: View {
         guard lightState.selectedEffect != .faultyBulb else { return }
 
         if isPaparazziEngine {
-            // Software engine — just update params, engine uses them on next flash
             bleManager.paparazziEngine?.updateParams(from: lightState)
         } else {
             throttle.send { [bleManager, lightState] in
-                let isHSI = lightState.selectedEffect == .strobe && lightState.strobeColorMode == .hsi
+                let isHSI: Bool = {
+                    switch lightState.selectedEffect {
+                    case .strobe: return lightState.strobeColorMode == .hsi
+                    case .paparazzi: return lightState.paparazziColorMode == .hsi
+                    default: return lightState.effectColorMode == .hsi
+                    }
+                }()
                 bleManager.setEffect(
                     effectType: lightState.selectedEffect.rawValue,
                     intensityPercent: lightState.intensity,
@@ -609,7 +626,7 @@ private struct EffectDetailPanel: View {
             case .strobe:
                 ColorModeEffectDetail(lightState: lightState, cctRange: cctRange, onChanged: onChanged, onModeChanged: onModeChanged, colorMode: $lightState.strobeColorMode)
             default:
-                FrequencySlider(lightState: lightState, onChanged: onChanged)
+                ColorModeEffectDetail(lightState: lightState, cctRange: cctRange, onChanged: onChanged, onModeChanged: onModeChanged, colorMode: $lightState.effectColorMode)
             }
         }
         .padding(12)

@@ -127,6 +127,7 @@ class LightState: ObservableObject {
     var warmestCCT: Double = 2700 // Set at runtime from cctRange lower bound
     @Published var paparazziColorMode: LightMode = .cct // .cct or .hsi for paparazzi color
     @Published var strobeColorMode: LightMode = .cct // .cct or .hsi for strobe color
+    @Published var effectColorMode: LightMode = .cct // .cct or .hsi for other effects
 
     // MARK: - Computed Properties
 
