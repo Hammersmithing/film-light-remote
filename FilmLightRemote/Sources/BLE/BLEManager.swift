@@ -1380,13 +1380,13 @@ class FaultyBulbEngine {
     private func sendIntensity(_ percent: Double, sleepMode: Int) {
         guard let mgr = bleManager else { return }
 
-        // Calculate warmth-shifted CCT: deeper dips → warmer color
-        // Uses pow(0.35) curve so CCT shifts aggressively early in the dip
-        // (matches real incandescent physics where color drops faster than brightness)
+        // Linear warmth shift: at warmth=100, CCT maps linearly from baseCCT
+        // (at max intensity) to warmestCCT (at min intensity). Warmth slider
+        // controls how far toward warmestCCT the low end reaches.
         let adjustedCCT: Int
         if warmthValue > 0 && maxIntensity > minIntensity {
             let dipDepth = max(0, min(1, (maxIntensity - percent) / (maxIntensity - minIntensity)))
-            let shift = pow(dipDepth, 0.35) * (warmthValue / 100.0)
+            let shift = dipDepth * (warmthValue / 100.0)
             let baseCCT = colorMode == .hsi ? hsiCCT : cctKelvin
             adjustedCCT = Int(Double(baseCCT) + Double(warmestCCT - baseCCT) * shift)
             mgr.log("FaultyBulb warmth: i=\(Int(percent))% dip=\(String(format:"%.2f",dipDepth)) shift=\(String(format:"%.2f",shift)) base=\(baseCCT)K warm=\(warmestCCT)K → \(adjustedCCT)K")
