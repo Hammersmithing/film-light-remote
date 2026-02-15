@@ -732,6 +732,7 @@ private struct FaultyBulbDetail: View {
     @ObservedObject var lightState: LightState
     var cctRange: ClosedRange<Double> = 2700...6500
     private let throttle = ThrottledSender()
+    @State private var lastInverse: Double = 0
 
     var body: some View {
         VStack(spacing: 12) {
@@ -835,6 +836,50 @@ private struct FaultyBulbDetail: View {
                 Slider(value: $lightState.faultyBulbBias, in: 0...100, step: 1)
                     .onChange(of: lightState.faultyBulbBias) { _ in syncEngineParams() }
             }
+
+            // Frequency slider: 1-9 + R(andom)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Frequency")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text(Int(lightState.faultyBulbFrequency) == 10 ? "R" : "\(Int(lightState.faultyBulbFrequency))")
+                        .font(.caption)
+                        .monospacedDigit()
+                }
+
+                Slider(value: $lightState.faultyBulbFrequency, in: 1...10, step: 1)
+                    .onChange(of: lightState.faultyBulbFrequency) { _ in syncEngineParams() }
+            }
+
+            // Inverse slider — moves Fault and Frequency in opposite directions
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Inverse")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text(Int(lightState.faultyBulbInverse) == 0 ? "Off" : "\(Int(lightState.faultyBulbInverse))")
+                        .font(.caption)
+                        .monospacedDigit()
+                }
+
+                Slider(value: $lightState.faultyBulbInverse, in: 0...9, step: 1)
+                    .onChange(of: lightState.faultyBulbInverse) { newValue in
+                        let delta = newValue - lastInverse
+                        lastInverse = newValue
+                        // Fault up: ~11 per step so 9 steps ≈ 100
+                        lightState.faultyBulbBias = min(100, max(0, lightState.faultyBulbBias + delta * 11.1))
+                        // Frequency down: 1 per step, clamped to 1-9
+                        let newFreq = lightState.faultyBulbFrequency - delta
+                        lightState.faultyBulbFrequency = min(9, max(1, newFreq))
+                        syncEngineParams()
+                    }
+                    .disabled(Int(lightState.faultyBulbFrequency) == 10)
+                    .onAppear { lastInverse = lightState.faultyBulbInverse }
+            }
+            .opacity(Int(lightState.faultyBulbFrequency) == 10 ? 0.4 : 1.0)
 
             // Recovery slider — how quickly the bulb returns to high after a dip
             VStack(alignment: .leading, spacing: 4) {
@@ -946,39 +991,6 @@ private struct FaultyBulbDetail: View {
 
                 Slider(value: $lightState.faultyBulbTransition, in: 0...0.20, step: 0.01)
                     .onChange(of: lightState.faultyBulbTransition) { _ in syncEngineParams() }
-            }
-
-            // Frequency selector: 1-9 + R
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Frequency")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                HStack(spacing: 4) {
-                    ForEach(1...10, id: \.self) { val in
-                        Button {
-                            lightState.faultyBulbFrequency = Double(val)
-                            syncEngineParams()
-                        } label: {
-                            Text(val == 10 ? "R" : "\(val)")
-                                .font(.caption2)
-                                .fontWeight(Int(lightState.faultyBulbFrequency) == val ? .bold : .regular)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 6)
-                                .background(
-                                    Int(lightState.faultyBulbFrequency) == val
-                                        ? Color.orange.opacity(0.3)
-                                        : Color(.systemGray4)
-                                )
-                                .foregroundColor(
-                                    Int(lightState.faultyBulbFrequency) == val
-                                        ? .orange
-                                        : .primary
-                                )
-                                .cornerRadius(4)
-                        }
-                    }
-                }
             }
         }
     }

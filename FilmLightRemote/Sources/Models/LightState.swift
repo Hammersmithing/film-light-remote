@@ -120,6 +120,7 @@ class LightState: ObservableObject {
     @Published var faultyBulbPoints: Double = 2.0 // 2-5 discrete intensity levels
     @Published var faultyBulbFrequency: Double = 5.0 // 1-9 fixed, 10 = random
     @Published var faultyBulbBias: Double = 100.0 // 0 = not faulty, 100 = fully faulty (log scaled)
+    @Published var faultyBulbInverse: Double = 0.0 // 0-9, slows frequency during faults
     @Published var faultyBulbRecovery: Double = 100.0 // 100 = instant return to high, 0 = lingers at low
     @Published var faultyBulbWarmth: Double = 0.0 // 0 = no color shift, 100 = warm to lowest CCT on dips
     @Published var faultyBulbColorMode: LightMode = .cct // .cct or .hsi for flicker color
