@@ -1659,6 +1659,7 @@ class SoftwareEffectEngine {
     private var frequency: Double = 8.0
     private var pulsingMin: Double = 0.0
     private var pulsingMax: Double = 100.0
+    private var pulsingShape: Double = 50.0
     private var currentIntensity: Double = 0.0
     private var phaseTime: Double = 0.0 // for pulsing sine wave
 
@@ -1689,6 +1690,7 @@ class SoftwareEffectEngine {
         frequency = lightState.effectFrequency
         pulsingMin = lightState.pulsingMin
         pulsingMax = lightState.pulsingMax
+        pulsingShape = lightState.pulsingShape
     }
 
     private func scheduleNext() {
@@ -1771,13 +1773,18 @@ class SoftwareEffectEngine {
             queue.asyncAfter(deadline: .now() + flashDuration, execute: work)
 
         case .pulsing:
-            // Smooth sine wave between pulsingMin and pulsingMax
+            // Smooth shaped wave between pulsingMin and pulsingMax
             let lo = min(pulsingMin, pulsingMax)
             let hi = max(pulsingMin, pulsingMax)
             let period = 4.0 * pow(0.80, frequency) // faster at higher freq
             phaseTime += 0.03
-            let sine = (sin(phaseTime * 2.0 * .pi / period) + 1.0) / 2.0
-            let target = lo + (hi - lo) * sine
+            let sine = (sin(phaseTime * 2.0 * .pi / period) + 1.0) / 2.0 // 0-1
+            // Shape: 0=bottom-heavy, 50=sine, 100=top-heavy
+            // Logarithmic exponent: 50→1.0, 0→~10, 100→~0.1
+            let normalized = (pulsingShape - 50.0) / 50.0 // -1 to 1
+            let exponent = pow(10.0, -normalized * 0.8) // 0→~6.3, 50→1, 100→~0.16
+            let shaped = pow(sine, exponent)
+            let target = lo + (hi - lo) * shaped
             currentIntensity = target
             if target < 1.0 {
                 sendColor(intensity: 0, sleepMode: 0)

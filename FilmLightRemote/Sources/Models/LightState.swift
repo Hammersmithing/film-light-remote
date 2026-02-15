@@ -125,6 +125,7 @@ class LightState: ObservableObject {
     @Published var faultyBulbWarmth: Double = 0.0 // 0 = no color shift, 100 = warm to lowest CCT on dips
     @Published var pulsingMin: Double = 0.0 // 0-100% intensity range low
     @Published var pulsingMax: Double = 100.0 // 0-100% intensity range high
+    @Published var pulsingShape: Double = 50.0 // 0=bottom-heavy, 50=sine, 100=top-heavy
     @Published var faultyBulbColorMode: LightMode = .cct // .cct or .hsi for flicker color
     var warmestCCT: Double = 2700 // Set at runtime from cctRange lower bound
     @Published var paparazziColorMode: LightMode = .cct // .cct or .hsi for paparazzi color

@@ -1183,6 +1183,31 @@ private struct PulsingDetail: View {
                 .onChange(of: lightState.pulsingMin) { _ in syncParams() }
                 .onChange(of: lightState.pulsingMax) { _ in syncParams() }
             }
+
+            // Shape slider — skews waveform toward top or bottom, snaps to center (sine)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Shape")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text(Int(lightState.pulsingShape) == 50 ? "Sine" : (lightState.pulsingShape < 50 ? "Bottom" : "Top"))
+                        .font(.caption)
+                        .monospacedDigit()
+                }
+
+                Slider(
+                    value: Binding(
+                        get: { lightState.pulsingShape },
+                        set: { newValue in
+                            // Snap to center (50) when within 3 points
+                            lightState.pulsingShape = abs(newValue - 50) < 3 ? 50 : newValue
+                        }
+                    ),
+                    in: 0...100, step: 1
+                )
+                .onChange(of: lightState.pulsingShape) { _ in syncParams() }
+            }
         }
     }
 
