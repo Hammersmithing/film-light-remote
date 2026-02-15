@@ -1295,6 +1295,7 @@ class FaultyBulbEngine {
     private var minIntensity: Double = 20.0
     private var maxIntensity: Double = 100.0
     private var biasValue: Double = 100.0
+    private var recoveryValue: Double = 100.0
     private var pointCount: Int = 2
     private var transitionValue: Double = 0.0
     private var frequencyValue: Double = 5.0
@@ -1324,6 +1325,7 @@ class FaultyBulbEngine {
         minIntensity = lightState.faultyBulbMin
         maxIntensity = lightState.faultyBulbMax
         biasValue = lightState.faultyBulbBias
+        recoveryValue = lightState.faultyBulbRecovery
         pointCount = Int(lightState.faultyBulbPoints)
         transitionValue = lightState.faultyBulbTransition
         frequencyValue = lightState.faultyBulbFrequency
@@ -1426,8 +1428,17 @@ class FaultyBulbEngine {
                 return
             }
         } else {
-            // We're on a low point — always return to high
-            target = hi
+            // We're on a low point — recovery slider controls how quickly we return to high.
+            // recovery=100 → always return to high (instant recovery)
+            // recovery=0 → stay at low points (elongated dips)
+            let returnChance = pow(recoveryValue / 100.0, 2.0)
+            if Double.random(in: 0...1) < returnChance {
+                target = hi
+            } else {
+                // Stay at a low point — either current or pick another one
+                let lowerPoints = points.filter { $0 < hi - 0.5 }
+                target = lowerPoints.randomElement() ?? hi
+            }
         }
 
         let lo = min(minIntensity, maxIntensity)

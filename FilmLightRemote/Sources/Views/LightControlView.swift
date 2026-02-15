@@ -835,6 +835,22 @@ private struct FaultyBulbDetail: View {
                     .onChange(of: lightState.faultyBulbBias) { _ in syncEngineParams() }
             }
 
+            // Recovery slider — how quickly the bulb returns to high after a dip
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Recovery")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text(Int(lightState.faultyBulbRecovery) == 100 ? "Instant" : "\(Int(lightState.faultyBulbRecovery))")
+                        .font(.caption)
+                        .monospacedDigit()
+                }
+
+                Slider(value: $lightState.faultyBulbRecovery, in: 0...100, step: 1)
+                    .onChange(of: lightState.faultyBulbRecovery) { _ in syncEngineParams() }
+            }
+
             // Range slider
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
