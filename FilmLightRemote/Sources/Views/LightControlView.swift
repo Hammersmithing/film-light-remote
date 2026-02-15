@@ -851,6 +851,54 @@ private struct FaultyBulbDetail: View {
                 }
             }
 
+            // Range slider
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Flicker Range")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text("\(Int(lightState.faultyBulbMin))% – \(Int(lightState.faultyBulbMax))%")
+                        .font(.caption)
+                        .monospacedDigit()
+                }
+
+                RangeSlider(
+                    low: $lightState.faultyBulbMin,
+                    high: $lightState.faultyBulbMax
+                )
+                .onChange(of: lightState.faultyBulbMin) { _ in syncEngineParams() }
+                .onChange(of: lightState.faultyBulbMax) { _ in syncEngineParams() }
+            }
+
+            // Level slider — shifts the entire range up/down keeping the spread
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Level")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text("\(Int(lightState.faultyBulbMin))% – \(Int(lightState.faultyBulbMax))%")
+                        .font(.caption)
+                        .monospacedDigit()
+                }
+
+                Slider(
+                    value: Binding(
+                        get: { lightState.faultyBulbMin },
+                        set: { newLow in
+                            let spread = lightState.faultyBulbMax - lightState.faultyBulbMin
+                            let clamped = min(newLow, 100 - spread)
+                            lightState.faultyBulbMin = max(0, clamped)
+                            lightState.faultyBulbMax = lightState.faultyBulbMin + spread
+                            syncEngineParams()
+                        }
+                    ),
+                    in: 0...100,
+                    step: 1
+                )
+            }
+
             // Fault bias slider (log-scaled: fine control at low values)
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
@@ -911,26 +959,33 @@ private struct FaultyBulbDetail: View {
             }
             .opacity(Int(lightState.faultyBulbFrequency) == 10 ? 0.4 : 1.0)
 
-            // Recovery slider — how quickly the bulb returns to high after a dip
+            // Recovery slider — 0 (left) = instant recovery, 100 (right) = lingers at low
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text("Recovery")
                         .font(.caption)
                         .foregroundColor(.secondary)
                     Spacer()
-                    Text(Int(lightState.faultyBulbRecovery) == 100 ? "Instant" : "\(Int(lightState.faultyBulbRecovery))")
+                    Text(Int(lightState.faultyBulbRecovery) == 100 ? "Instant" : "\(Int(100 - lightState.faultyBulbRecovery))")
                         .font(.caption)
                         .monospacedDigit()
                 }
 
-                Slider(value: $lightState.faultyBulbRecovery, in: 0...100, step: 1)
-                    .onChange(of: lightState.faultyBulbRecovery) { _ in syncEngineParams() }
+                Slider(
+                    value: Binding(
+                        get: { 100 - lightState.faultyBulbRecovery },
+                        set: { lightState.faultyBulbRecovery = 100 - $0 }
+                    ),
+                    in: 0...100,
+                    step: 1
+                )
+                .onChange(of: lightState.faultyBulbRecovery) { _ in syncEngineParams() }
             }
 
-            // Warmth slider — shifts CCT warmer on intensity dips (like real incandescent)
+            // Warm Up Shift slider — shifts color warmer on intensity dips (like real incandescent)
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text("Warmth")
+                    Text("Warm Up Shift")
                         .font(.caption)
                         .foregroundColor(.secondary)
                     Spacer()
@@ -941,54 +996,6 @@ private struct FaultyBulbDetail: View {
 
                 Slider(value: $lightState.faultyBulbWarmth, in: 0...100, step: 1)
                     .onChange(of: lightState.faultyBulbWarmth) { _ in syncEngineParams() }
-            }
-
-            // Range slider
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Flicker Range")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Spacer()
-                    Text("\(Int(lightState.faultyBulbMin))% – \(Int(lightState.faultyBulbMax))%")
-                        .font(.caption)
-                        .monospacedDigit()
-                }
-
-                RangeSlider(
-                    low: $lightState.faultyBulbMin,
-                    high: $lightState.faultyBulbMax
-                )
-                .onChange(of: lightState.faultyBulbMin) { _ in syncEngineParams() }
-                .onChange(of: lightState.faultyBulbMax) { _ in syncEngineParams() }
-            }
-
-            // Level slider — shifts the entire range up/down keeping the spread
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Level")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Spacer()
-                    Text("\(Int(lightState.faultyBulbMin))% – \(Int(lightState.faultyBulbMax))%")
-                        .font(.caption)
-                        .monospacedDigit()
-                }
-
-                Slider(
-                    value: Binding(
-                        get: { lightState.faultyBulbMin },
-                        set: { newLow in
-                            let spread = lightState.faultyBulbMax - lightState.faultyBulbMin
-                            let clamped = min(newLow, 100 - spread)
-                            lightState.faultyBulbMin = max(0, clamped)
-                            lightState.faultyBulbMax = lightState.faultyBulbMin + spread
-                            syncEngineParams()
-                        }
-                    ),
-                    in: 0...100,
-                    step: 1
-                )
             }
 
             // Points slider

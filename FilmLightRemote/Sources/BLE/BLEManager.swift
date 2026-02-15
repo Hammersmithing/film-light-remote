@@ -811,7 +811,7 @@ class BLEManager: NSObject, ObservableObject {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.appendingPathComponent("debug_log.txt")
     }
 
-    private func log(_ message: String) {
+    func log(_ message: String) {
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let entry = "[\(timestamp)] \(message)"
         print(entry)
@@ -1381,12 +1381,15 @@ class FaultyBulbEngine {
         guard let mgr = bleManager else { return }
 
         // Calculate warmth-shifted CCT: deeper dips → warmer color
+        // Uses pow(0.35) curve so CCT shifts aggressively early in the dip
+        // (matches real incandescent physics where color drops faster than brightness)
         let adjustedCCT: Int
         if warmthValue > 0 && maxIntensity > minIntensity {
             let dipDepth = max(0, min(1, (maxIntensity - percent) / (maxIntensity - minIntensity)))
-            let shift = dipDepth * (warmthValue / 100.0)
+            let shift = pow(dipDepth, 0.35) * (warmthValue / 100.0)
             let baseCCT = colorMode == .hsi ? hsiCCT : cctKelvin
             adjustedCCT = Int(Double(baseCCT) + Double(warmestCCT - baseCCT) * shift)
+            mgr.log("FaultyBulb warmth: i=\(Int(percent))% dip=\(String(format:"%.2f",dipDepth)) shift=\(String(format:"%.2f",shift)) base=\(baseCCT)K warm=\(warmestCCT)K → \(adjustedCCT)K")
         } else {
             adjustedCCT = colorMode == .hsi ? hsiCCT : cctKelvin
         }

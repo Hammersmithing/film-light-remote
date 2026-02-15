@@ -224,6 +224,25 @@ class LightState: ObservableObject {
             hsiIntensity: hsiIntensity, hsiCCT: hsiCCT, red: red, green: green,
             blue: blue, white: white,
             effectId: selectedEffect.rawValue, effectSpeed: effectSpeed,
+            effectFrequency: effectFrequency,
+            copCarColor: copCarColor,
+            faultyBulbMin: faultyBulbMin,
+            faultyBulbMax: faultyBulbMax,
+            faultyBulbTransition: faultyBulbTransition,
+            faultyBulbPoints: faultyBulbPoints,
+            faultyBulbFrequency: faultyBulbFrequency,
+            faultyBulbBias: faultyBulbBias,
+            faultyBulbInverse: faultyBulbInverse,
+            faultyBulbRecovery: faultyBulbRecovery,
+            faultyBulbWarmth: faultyBulbWarmth,
+            faultyBulbColorMode: faultyBulbColorMode.rawValue,
+            pulsingMin: pulsingMin,
+            pulsingMax: pulsingMax,
+            pulsingShape: pulsingShape,
+            paparazziColorMode: paparazziColorMode.rawValue,
+            strobeHz: strobeHz,
+            strobeColorMode: strobeColorMode.rawValue,
+            effectColorMode: effectColorMode.rawValue,
             partyColors: partyColors,
             partyTransition: partyTransition,
             partyHueBias: partyHueBias
@@ -251,6 +270,25 @@ class LightState: ObservableObject {
         selectedEffect = LightEffect(rawValue: state.effectId) ?? .none
         effectPlaying = false // Always start stopped — user must press play
         effectSpeed = state.effectSpeed
+        if let v = state.effectFrequency { effectFrequency = v }
+        if let v = state.copCarColor { copCarColor = v }
+        if let v = state.faultyBulbMin { faultyBulbMin = v }
+        if let v = state.faultyBulbMax { faultyBulbMax = v }
+        if let v = state.faultyBulbTransition { faultyBulbTransition = v }
+        if let v = state.faultyBulbPoints { faultyBulbPoints = v }
+        if let v = state.faultyBulbFrequency { faultyBulbFrequency = v }
+        if let v = state.faultyBulbBias { faultyBulbBias = v }
+        if let v = state.faultyBulbInverse { faultyBulbInverse = v }
+        if let v = state.faultyBulbRecovery { faultyBulbRecovery = v }
+        if let v = state.faultyBulbWarmth { faultyBulbWarmth = v }
+        if let v = state.faultyBulbColorMode { faultyBulbColorMode = LightMode(rawValue: v) ?? .cct }
+        if let v = state.pulsingMin { pulsingMin = v }
+        if let v = state.pulsingMax { pulsingMax = v }
+        if let v = state.pulsingShape { pulsingShape = v }
+        if let v = state.paparazziColorMode { paparazziColorMode = LightMode(rawValue: v) ?? .cct }
+        if let v = state.strobeHz { strobeHz = v }
+        if let v = state.strobeColorMode { strobeColorMode = LightMode(rawValue: v) ?? .cct }
+        if let v = state.effectColorMode { effectColorMode = LightMode(rawValue: v) ?? .cct }
         if let colors = state.partyColors, !colors.isEmpty {
             partyColors = colors
         }
@@ -277,6 +315,26 @@ class LightState: ObservableObject {
         var white: Double
         var effectId: Int
         var effectSpeed: Double
+        // Effect parameters (all optional for backward compat)
+        var effectFrequency: Double?
+        var copCarColor: Int?
+        var faultyBulbMin: Double?
+        var faultyBulbMax: Double?
+        var faultyBulbTransition: Double?
+        var faultyBulbPoints: Double?
+        var faultyBulbFrequency: Double?
+        var faultyBulbBias: Double?
+        var faultyBulbInverse: Double?
+        var faultyBulbRecovery: Double?
+        var faultyBulbWarmth: Double?
+        var faultyBulbColorMode: String?
+        var pulsingMin: Double?
+        var pulsingMax: Double?
+        var pulsingShape: Double?
+        var paparazziColorMode: String?
+        var strobeHz: Double?
+        var strobeColorMode: String?
+        var effectColorMode: String?
         var partyColors: [Double]?
         var partyTransition: Double?
         var partyHueBias: Double?
