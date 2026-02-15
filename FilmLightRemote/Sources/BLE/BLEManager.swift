@@ -551,6 +551,7 @@ class BLEManager: NSObject, ObservableObject {
     func stopEffect() {
         stopFaultyBulb()
         stopPaparazzi()
+        stopSoftwareEffect()
         guard let peripheral = connectedPeripheral else { return }
 
         log("stopEffect() target=0x\(String(format: "%04X", targetUnicastAddress))")
@@ -575,9 +576,10 @@ class BLEManager: NSObject, ObservableObject {
 
     private(set) var faultyBulbEngine: FaultyBulbEngine?
     private(set) var paparazziEngine: PaparazziEngine?
+    private(set) var softwareEffectEngine: SoftwareEffectEngine?
 
     /// Whether a background engine is actively running
-    var hasActiveEngine: Bool { faultyBulbEngine != nil || paparazziEngine != nil }
+    var hasActiveEngine: Bool { faultyBulbEngine != nil || paparazziEngine != nil || softwareEffectEngine != nil }
 
     /// Start the software-driven faulty bulb effect. Survives view lifecycle changes.
     func startFaultyBulb(lightState: LightState) {
@@ -612,6 +614,24 @@ class BLEManager: NSObject, ObservableObject {
             paparazziEngine?.stop()
             paparazziEngine = nil
             log("Paparazzi engine stopped")
+        }
+    }
+
+    /// Start the generic software effect engine (for HSI mode on effects without native HSI support).
+    func startSoftwareEffect(lightState: LightState) {
+        stopSoftwareEffect()
+        let engine = SoftwareEffectEngine()
+        softwareEffectEngine = engine
+        engine.start(bleManager: self, lightState: lightState, targetAddress: targetUnicastAddress)
+        log("Software effect engine started: \(lightState.selectedEffect) for 0x\(String(format: "%04X", targetUnicastAddress))")
+    }
+
+    /// Stop the generic software effect engine.
+    func stopSoftwareEffect() {
+        if softwareEffectEngine != nil {
+            softwareEffectEngine?.stop()
+            softwareEffectEngine = nil
+            log("Software effect engine stopped")
         }
     }
 
@@ -966,6 +986,7 @@ extension BLEManager: CBCentralManagerDelegate {
         log("Disconnected from \(peripheral.name ?? "Unknown")")
         stopFaultyBulb()  // Engine can no longer send — stop it
         stopPaparazzi()
+        stopSoftwareEffect()
         cleanup()
     }
 }
@@ -1595,6 +1616,239 @@ class PaparazziEngine {
         }
         workItem = work
         queue.asyncAfter(deadline: .now() + flashDuration, execute: work)
+    }
+
+    private func sendColor(intensity: Double, sleepMode: Int) {
+        guard let mgr = bleManager else { return }
+        if colorMode == .hsi {
+            mgr.setHSIWithSleep(
+                intensity: intensity,
+                hue: hue,
+                saturation: saturation,
+                cctKelvin: hsiCCT,
+                sleepMode: sleepMode,
+                targetAddress: targetAddress
+            )
+        } else {
+            mgr.setCCTWithSleep(
+                intensity: intensity,
+                cctKelvin: cctKelvin,
+                sleepMode: sleepMode,
+                targetAddress: targetAddress
+            )
+        }
+    }
+}
+
+// MARK: - Generic Software Effect Engine
+/// Simulates lighting effects in HSI mode for lights that don't support native HSI effects.
+/// Each effect type has its own intensity pattern, sent via setHSIWithSleep/setCCTWithSleep.
+class SoftwareEffectEngine {
+    private var workItem: DispatchWorkItem?
+    private var bleManager: BLEManager?
+    private let queue = DispatchQueue(label: "com.filmlightremote.softwareeffect", qos: .userInitiated)
+
+    private(set) var targetAddress: UInt16 = 0x0002
+    private var effectType: LightEffect = .none
+    private var colorMode: LightMode = .hsi
+    private var cctKelvin: Int = 5600
+    private var hue: Int = 0
+    private var saturation: Int = 100
+    private var hsiCCT: Int = 5600
+    private var intensity: Double = 100.0
+    private var frequency: Double = 8.0
+    private var currentIntensity: Double = 0.0
+    private var phaseTime: Double = 0.0 // for pulsing sine wave
+
+    func start(bleManager: BLEManager, lightState: LightState, targetAddress: UInt16) {
+        stop()
+        self.bleManager = bleManager
+        self.targetAddress = targetAddress
+        updateParams(from: lightState)
+        currentIntensity = intensity
+        phaseTime = 0
+        scheduleNext()
+    }
+
+    func stop() {
+        workItem?.cancel()
+        workItem = nil
+        bleManager = nil
+    }
+
+    func updateParams(from lightState: LightState) {
+        effectType = lightState.selectedEffect
+        colorMode = lightState.effectColorMode
+        cctKelvin = Int(lightState.cctKelvin)
+        hue = Int(lightState.hue)
+        saturation = Int(lightState.saturation)
+        hsiCCT = Int(lightState.hsiCCT)
+        intensity = lightState.intensity
+        frequency = lightState.effectFrequency
+    }
+
+    private func scheduleNext() {
+        guard bleManager != nil else { return }
+
+        let interval: Double
+        switch effectType {
+        case .candle:
+            // Gentle flicker: slow base, frequency speeds it up
+            interval = 0.15 * pow(0.85, frequency) * Double.random(in: 0.7...1.3)
+        case .fire:
+            // Aggressive flicker: faster
+            interval = 0.10 * pow(0.85, frequency) * Double.random(in: 0.5...1.5)
+        case .tvFlicker:
+            // Random jumps at moderate speed
+            interval = 0.08 * pow(0.85, frequency) * Double.random(in: 0.6...1.4)
+        case .lightning:
+            // Long pauses between flashes
+            let baseGap = 3.0 * pow(0.75, frequency)
+            interval = baseGap * Double.random(in: 0.5...1.5)
+        case .pulsing:
+            // Smooth sine: fixed step rate
+            interval = 0.03
+        case .explosion:
+            // Fast decay steps
+            interval = 0.04
+        case .welding:
+            // Bursts with pauses
+            let baseGap = 1.5 * pow(0.80, frequency)
+            interval = baseGap * Double.random(in: 0.3...1.0)
+        default:
+            interval = 0.12 * pow(0.85, frequency) * Double.random(in: 0.7...1.3)
+        }
+
+        let work = DispatchWorkItem { [weak self] in
+            self?.fireStep()
+        }
+        workItem = work
+        queue.asyncAfter(deadline: .now() + interval, execute: work)
+    }
+
+    private func fireStep() {
+        guard bleManager != nil else { return }
+
+        switch effectType {
+        case .candle:
+            // Gentle flicker: 60-100% of base intensity
+            let target = intensity * Double.random(in: 0.60...1.0)
+            currentIntensity = target
+            sendColor(intensity: target, sleepMode: 1)
+            scheduleNext()
+
+        case .fire:
+            // Aggressive flicker: 15-100% with occasional bright bursts
+            let burst = Double.random(in: 0...1) < 0.15
+            let target = burst ? intensity : intensity * Double.random(in: 0.15...0.85)
+            currentIntensity = target
+            sendColor(intensity: target, sleepMode: 1)
+            scheduleNext()
+
+        case .tvFlicker:
+            // Discrete random jumps between levels
+            let levels: [Double] = [0.1, 0.3, 0.5, 0.7, 0.85, 1.0]
+            let target = intensity * (levels.randomElement() ?? 0.5)
+            currentIntensity = target
+            sendColor(intensity: target, sleepMode: 1)
+            scheduleNext()
+
+        case .lightning:
+            // Brief bright flash then off (like paparazzi but single flash)
+            sendColor(intensity: intensity, sleepMode: 1)
+            let flashDuration = Double.random(in: 0.04...0.12)
+            let work = DispatchWorkItem { [weak self] in
+                guard let self = self else { return }
+                self.sendColor(intensity: 0, sleepMode: 0)
+                self.currentIntensity = 0
+                self.scheduleNext()
+            }
+            workItem = work
+            queue.asyncAfter(deadline: .now() + flashDuration, execute: work)
+
+        case .pulsing:
+            // Smooth sine wave: 0% to base intensity
+            let period = 4.0 * pow(0.80, frequency) // faster at higher freq
+            phaseTime += 0.03
+            let sine = (sin(phaseTime * 2.0 * .pi / period) + 1.0) / 2.0
+            let target = intensity * sine
+            currentIntensity = target
+            if target < 1.0 {
+                sendColor(intensity: 0, sleepMode: 0)
+            } else {
+                sendColor(intensity: target, sleepMode: 1)
+            }
+            scheduleNext()
+
+        case .explosion:
+            // Flash then exponential decay
+            if currentIntensity < 5.0 && phaseTime == 0 {
+                // Initial flash
+                currentIntensity = intensity
+                sendColor(intensity: intensity, sleepMode: 1)
+                phaseTime = 1.0
+            } else if phaseTime > 0 {
+                // Decay
+                currentIntensity *= 0.88
+                if currentIntensity < 2.0 {
+                    sendColor(intensity: 0, sleepMode: 0)
+                    currentIntensity = 0
+                    phaseTime = 0
+                    // Wait before next explosion
+                    let gap = 2.0 * pow(0.80, frequency) * Double.random(in: 0.5...1.5)
+                    let work = DispatchWorkItem { [weak self] in
+                        self?.fireStep()
+                    }
+                    workItem = work
+                    queue.asyncAfter(deadline: .now() + gap, execute: work)
+                    return
+                } else {
+                    sendColor(intensity: currentIntensity, sleepMode: 1)
+                }
+            } else {
+                // Trigger new explosion
+                phaseTime = 0
+            }
+            scheduleNext()
+
+        case .welding:
+            // Bright arc burst then off
+            let burstCount = Int.random(in: 2...5)
+            weldBurst(remaining: burstCount)
+
+        default:
+            // Generic flicker fallback
+            let target = intensity * Double.random(in: 0.3...1.0)
+            currentIntensity = target
+            sendColor(intensity: target, sleepMode: 1)
+            scheduleNext()
+        }
+    }
+
+    private func weldBurst(remaining: Int) {
+        guard bleManager != nil, remaining > 0 else {
+            sendColor(intensity: 0, sleepMode: 0)
+            currentIntensity = 0
+            scheduleNext()
+            return
+        }
+        // Arc ON
+        let arcIntensity = intensity * Double.random(in: 0.7...1.0)
+        sendColor(intensity: arcIntensity, sleepMode: 1)
+        let onTime = Double.random(in: 0.02...0.08)
+        let work = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            // Brief off between arcs
+            self.sendColor(intensity: 0, sleepMode: 0)
+            let offTime = Double.random(in: 0.01...0.04)
+            let next = DispatchWorkItem { [weak self] in
+                self?.weldBurst(remaining: remaining - 1)
+            }
+            self.workItem = next
+            self.queue.asyncAfter(deadline: .now() + offTime, execute: next)
+        }
+        workItem = work
+        queue.asyncAfter(deadline: .now() + onTime, execute: work)
     }
 
     private func sendColor(intensity: Double, sleepMode: Int) {

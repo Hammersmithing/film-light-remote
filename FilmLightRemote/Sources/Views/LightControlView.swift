@@ -180,21 +180,16 @@ struct PowerIntensitySection: View {
                                     bleManager.startFaultyBulb(lightState: lightState)
                                 } else if lightState.selectedEffect == .paparazzi && lightState.paparazziColorMode == .hsi {
                                     bleManager.startPaparazzi(lightState: lightState)
+                                } else if lightState.selectedEffect != .none && lightState.selectedEffect != .copCar && lightState.effectColorMode == .hsi {
+                                    bleManager.startSoftwareEffect(lightState: lightState)
                                 } else if lightState.selectedEffect != .none {
-                                    let isHSI: Bool = {
-                                        switch lightState.selectedEffect {
-                                        case .strobe: return lightState.strobeColorMode == .hsi
-                                        case .paparazzi: return lightState.paparazziColorMode == .hsi
-                                        default: return lightState.effectColorMode == .hsi
-                                        }
-                                    }()
                                     bleManager.setEffect(
                                         effectType: lightState.selectedEffect.rawValue,
                                         intensityPercent: lightState.intensity,
                                         frq: Int(lightState.effectFrequency),
                                         cctKelvin: Int(lightState.cctKelvin),
                                         copCarColor: lightState.copCarColor,
-                                        effectMode: isHSI ? 1 : 0,
+                                        effectMode: 0,
                                         hue: Int(lightState.hue),
                                         saturation: Int(lightState.saturation))
                                 }
@@ -467,9 +462,14 @@ struct EffectsControls: View {
         .cornerRadius(12)
     }
 
-    /// Whether the current effect uses a software engine
-    private var isPaparazziEngine: Bool {
-        lightState.selectedEffect == .paparazzi && lightState.paparazziColorMode == .hsi
+    /// Whether the current effect needs a software engine (HSI on effects without native HSI)
+    private var needsSoftwareEngine: Bool {
+        guard currentEffectIsHSI else { return false }
+        switch lightState.selectedEffect {
+        case .faultyBulb: return false // has its own engine with HSI support
+        case .copCar: return false     // uses its own color system
+        default: return true
+        }
     }
 
     /// Resolve the color mode for the current effect
@@ -486,8 +486,12 @@ struct EffectsControls: View {
         lightState.effectPlaying = true
         if lightState.selectedEffect == .faultyBulb {
             bleManager.startFaultyBulb(lightState: lightState)
-        } else if isPaparazziEngine {
-            bleManager.startPaparazzi(lightState: lightState)
+        } else if needsSoftwareEngine {
+            if lightState.selectedEffect == .paparazzi {
+                bleManager.startPaparazzi(lightState: lightState)
+            } else {
+                bleManager.startSoftwareEffect(lightState: lightState)
+            }
         } else {
             sendCurrentEffect()
         }
@@ -507,8 +511,12 @@ struct EffectsControls: View {
     private func restartCurrentEffect() {
         guard lightState.effectPlaying else { return }
         bleManager.stopEffect()
-        if isPaparazziEngine {
-            bleManager.startPaparazzi(lightState: lightState)
+        if needsSoftwareEngine {
+            if lightState.selectedEffect == .paparazzi {
+                bleManager.startPaparazzi(lightState: lightState)
+            } else {
+                bleManager.startSoftwareEffect(lightState: lightState)
+            }
         } else {
             bleManager.setEffect(
                 effectType: lightState.selectedEffect.rawValue,
@@ -528,24 +536,21 @@ struct EffectsControls: View {
         guard lightState.effectPlaying else { return }
         guard lightState.selectedEffect != .faultyBulb else { return }
 
-        if isPaparazziEngine {
-            bleManager.paparazziEngine?.updateParams(from: lightState)
+        if needsSoftwareEngine {
+            if lightState.selectedEffect == .paparazzi {
+                bleManager.paparazziEngine?.updateParams(from: lightState)
+            } else {
+                bleManager.softwareEffectEngine?.updateParams(from: lightState)
+            }
         } else {
             throttle.send { [bleManager, lightState] in
-                let isHSI: Bool = {
-                    switch lightState.selectedEffect {
-                    case .strobe: return lightState.strobeColorMode == .hsi
-                    case .paparazzi: return lightState.paparazziColorMode == .hsi
-                    default: return lightState.effectColorMode == .hsi
-                    }
-                }()
                 bleManager.setEffect(
                     effectType: lightState.selectedEffect.rawValue,
                     intensityPercent: lightState.intensity,
                     frq: Int(lightState.effectFrequency),
                     cctKelvin: Int(lightState.cctKelvin),
                     copCarColor: lightState.copCarColor,
-                    effectMode: isHSI ? 1 : 0,
+                    effectMode: 0,
                     hue: Int(lightState.hue),
                     saturation: Int(lightState.saturation))
             }
