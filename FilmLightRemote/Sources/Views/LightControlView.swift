@@ -630,6 +630,8 @@ private struct EffectDetailPanel: View {
                 ColorModeEffectDetail(lightState: lightState, cctRange: cctRange, onChanged: onChanged, onModeChanged: onModeChanged, colorMode: $lightState.paparazziColorMode)
             case .strobe:
                 ColorModeEffectDetail(lightState: lightState, cctRange: cctRange, onChanged: onChanged, onModeChanged: onModeChanged, colorMode: $lightState.strobeColorMode)
+            case .pulsing:
+                PulsingDetail(lightState: lightState, cctRange: cctRange, onChanged: onChanged, onModeChanged: onModeChanged)
             default:
                 ColorModeEffectDetail(lightState: lightState, cctRange: cctRange, onChanged: onChanged, onModeChanged: onModeChanged, colorMode: $lightState.effectColorMode)
             }
@@ -1147,6 +1149,45 @@ private struct ColorModeEffectDetail: View {
 
             FrequencySlider(lightState: lightState, onChanged: onChanged)
         }
+    }
+}
+
+// MARK: - Pulsing Detail
+private struct PulsingDetail: View {
+    @EnvironmentObject var bleManager: BLEManager
+    @ObservedObject var lightState: LightState
+    var cctRange: ClosedRange<Double> = 2700...6500
+    var onChanged: () -> Void
+    var onModeChanged: () -> Void = {}
+
+    var body: some View {
+        VStack(spacing: 12) {
+            ColorModeEffectDetail(lightState: lightState, cctRange: cctRange, onChanged: onChanged, onModeChanged: onModeChanged, colorMode: $lightState.effectColorMode)
+
+            // Intensity range slider
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Intensity Range")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text("\(Int(lightState.pulsingMin))% – \(Int(lightState.pulsingMax))%")
+                        .font(.caption)
+                        .monospacedDigit()
+                }
+
+                RangeSlider(
+                    low: $lightState.pulsingMin,
+                    high: $lightState.pulsingMax
+                )
+                .onChange(of: lightState.pulsingMin) { _ in syncParams() }
+                .onChange(of: lightState.pulsingMax) { _ in syncParams() }
+            }
+        }
+    }
+
+    private func syncParams() {
+        bleManager.softwareEffectEngine?.updateParams(from: lightState)
     }
 }
 

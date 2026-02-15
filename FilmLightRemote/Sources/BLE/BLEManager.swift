@@ -1657,6 +1657,8 @@ class SoftwareEffectEngine {
     private var hsiCCT: Int = 5600
     private var intensity: Double = 100.0
     private var frequency: Double = 8.0
+    private var pulsingMin: Double = 0.0
+    private var pulsingMax: Double = 100.0
     private var currentIntensity: Double = 0.0
     private var phaseTime: Double = 0.0 // for pulsing sine wave
 
@@ -1685,6 +1687,8 @@ class SoftwareEffectEngine {
         hsiCCT = Int(lightState.hsiCCT)
         intensity = lightState.intensity
         frequency = lightState.effectFrequency
+        pulsingMin = lightState.pulsingMin
+        pulsingMax = lightState.pulsingMax
     }
 
     private func scheduleNext() {
@@ -1767,11 +1771,13 @@ class SoftwareEffectEngine {
             queue.asyncAfter(deadline: .now() + flashDuration, execute: work)
 
         case .pulsing:
-            // Smooth sine wave: 0% to base intensity
+            // Smooth sine wave between pulsingMin and pulsingMax
+            let lo = min(pulsingMin, pulsingMax)
+            let hi = max(pulsingMin, pulsingMax)
             let period = 4.0 * pow(0.80, frequency) // faster at higher freq
             phaseTime += 0.03
             let sine = (sin(phaseTime * 2.0 * .pi / period) + 1.0) / 2.0
-            let target = intensity * sine
+            let target = lo + (hi - lo) * sine
             currentIntensity = target
             if target < 1.0 {
                 sendColor(intensity: 0, sleepMode: 0)
