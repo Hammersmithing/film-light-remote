@@ -180,7 +180,7 @@ struct PowerIntensitySection: View {
                                     bleManager.startFaultyBulb(lightState: lightState)
                                 } else if lightState.selectedEffect == .paparazzi && lightState.paparazziColorMode == .hsi {
                                     bleManager.startPaparazzi(lightState: lightState)
-                                } else if lightState.selectedEffect == .pulsing || lightState.selectedEffect == .strobe {
+                                } else if lightState.selectedEffect == .pulsing || lightState.selectedEffect == .strobe || lightState.selectedEffect == .party {
                                     bleManager.startSoftwareEffect(lightState: lightState)
                                 } else if lightState.selectedEffect != .none && lightState.selectedEffect != .copCar && lightState.effectColorMode == .hsi {
                                     bleManager.startSoftwareEffect(lightState: lightState)
@@ -471,6 +471,7 @@ struct EffectsControls: View {
         case .copCar: return false     // uses its own color system
         case .pulsing: return true     // always software for range/shape controls
         case .strobe: return true      // always software for clean on/off
+        case .party: return true       // software engine for custom color cycling
         default: return currentEffectIsHSI
         }
     }
@@ -635,6 +636,8 @@ private struct EffectDetailPanel: View {
                 StrobeDetail(lightState: lightState, cctRange: cctRange, onChanged: onChanged, onModeChanged: onModeChanged)
             case .pulsing:
                 PulsingDetail(lightState: lightState, cctRange: cctRange, onChanged: onChanged, onModeChanged: onModeChanged)
+            case .party:
+                PartyDetail(lightState: lightState, onChanged: onChanged)
             default:
                 ColorModeEffectDetail(lightState: lightState, cctRange: cctRange, onChanged: onChanged, onModeChanged: onModeChanged, colorMode: $lightState.effectColorMode)
             }
@@ -1186,6 +1189,191 @@ private struct StrobeDetail: View {
                     .onChange(of: lightState.strobeHz) { _ in
                         bleManager.softwareEffectEngine?.updateParams(from: lightState)
                     }
+            }
+        }
+    }
+}
+
+// MARK: - Party Detail
+private struct PartyDetail: View {
+    @EnvironmentObject var bleManager: BLEManager
+    @ObservedObject var lightState: LightState
+    var onChanged: () -> Void
+    @State private var editingIndex: Int? = nil
+
+    var body: some View {
+        VStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Saturation")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text("\(Int(lightState.saturation))%")
+                        .font(.caption)
+                        .monospacedDigit()
+                }
+
+                Slider(value: $lightState.saturation, in: 0...100, step: 1)
+                    .onChange(of: lightState.saturation) { _ in onChanged() }
+            }
+
+            FrequencySlider(lightState: lightState, onChanged: onChanged)
+
+            // Transition slider
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Transition")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text(Int(lightState.partyTransition) == 0 ? "Snap" : "\(Int(lightState.partyTransition))")
+                        .font(.caption)
+                        .monospacedDigit()
+                }
+
+                Slider(value: $lightState.partyTransition, in: 0...100, step: 1)
+                    .onChange(of: lightState.partyTransition) { _ in onChanged() }
+            }
+
+            // Color list
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Colors")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                ForEach(Array(lightState.partyColors.enumerated()), id: \.offset) { index, hueValue in
+                    if index < lightState.partyColors.count {
+                    VStack(spacing: 4) {
+                        HStack(spacing: 10) {
+                            // Color circle
+                            Circle()
+                                .fill(Color(hue: hueValue / 360.0, saturation: 1.0, brightness: 1.0))
+                                .frame(width: 28, height: 28)
+
+                            // Hue label
+                            Text("\(Int(hueValue))")
+                                .font(.subheadline)
+                                .monospacedDigit()
+                                .frame(width: 36, alignment: .leading)
+
+                            Spacer()
+
+                            // Edit button
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    editingIndex = editingIndex == index ? nil : index
+                                }
+                            } label: {
+                                Image(systemName: editingIndex == index ? "chevron.up" : "slider.horizontal.3")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(.secondary)
+                            }
+
+                            // Delete button (disabled when only 1 color left)
+                            Button {
+                                // Close editor first to avoid stale index access during animation
+                                editingIndex = nil
+                                withAnimation {
+                                    guard index < lightState.partyColors.count else { return }
+                                    lightState.partyColors.remove(at: index)
+                                    onChanged()
+                                }
+                            } label: {
+                                Image(systemName: "minus.circle.fill")
+                                    .font(.system(size: 18))
+                                    .foregroundColor(lightState.partyColors.count <= 1 ? .gray.opacity(0.3) : .red.opacity(0.7))
+                            }
+                            .disabled(lightState.partyColors.count <= 1)
+
+                            // Move up
+                            Button {
+                                withAnimation {
+                                    lightState.partyColors.swapAt(index, index - 1)
+                                    if editingIndex == index { editingIndex = index - 1 }
+                                    else if editingIndex == index - 1 { editingIndex = index }
+                                    onChanged()
+                                }
+                            } label: {
+                                Image(systemName: "chevron.up")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundColor(index == 0 ? .gray.opacity(0.3) : .secondary)
+                            }
+                            .disabled(index == 0)
+
+                            // Move down
+                            Button {
+                                withAnimation {
+                                    lightState.partyColors.swapAt(index, index + 1)
+                                    if editingIndex == index { editingIndex = index + 1 }
+                                    else if editingIndex == index + 1 { editingIndex = index }
+                                    onChanged()
+                                }
+                            } label: {
+                                Image(systemName: "chevron.down")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundColor(index == lightState.partyColors.count - 1 ? .gray.opacity(0.3) : .secondary)
+                            }
+                            .disabled(index == lightState.partyColors.count - 1)
+                        }
+
+                        // Inline hue editor
+                        if editingIndex == index {
+                            ZStack {
+                                LinearGradient(
+                                    colors: (0...6).map { Color(hue: Double($0) / 6.0, saturation: 1.0, brightness: 1.0) },
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                                .frame(height: 8)
+                                .cornerRadius(4)
+
+                                Slider(
+                                    value: Binding(
+                                        get: {
+                                            guard index < lightState.partyColors.count else { return 0 }
+                                            return lightState.partyColors[index]
+                                        },
+                                        set: { newValue in
+                                            guard index < lightState.partyColors.count else { return }
+                                            lightState.partyColors[index] = newValue
+                                            onChanged()
+                                        }
+                                    ),
+                                    in: 0...360,
+                                    step: 1
+                                )
+                                .tint(.clear)
+                            }
+                            .padding(.leading, 38)
+                            .transition(.opacity)
+                        }
+                    }
+                    } // bounds guard
+                }
+
+                // Add color button
+                Button {
+                    withAnimation {
+                        // Add a new color — pick a hue that's offset from the last one
+                        let lastHue = lightState.partyColors.last ?? 0
+                        let newHue = (lastHue + 60).truncatingRemainder(dividingBy: 360)
+                        lightState.partyColors.append(newHue)
+                        editingIndex = lightState.partyColors.count - 1
+                        onChanged()
+                    }
+                } label: {
+                    HStack {
+                        Image(systemName: "plus.circle.fill")
+                        Text("Add Color")
+                    }
+                    .font(.subheadline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .background(Color(.systemGray4))
+                    .foregroundColor(.primary)
+                    .cornerRadius(8)
+                }
             }
         }
     }

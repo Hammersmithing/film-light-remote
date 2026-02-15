@@ -1682,6 +1682,9 @@ class SoftwareEffectEngine {
     private var strobeHz: Double = 4.0
     private var currentIntensity: Double = 0.0
     private var phaseTime: Double = 0.0 // for pulsing sine wave
+    private var partyColors: [Double] = [0, 60, 120, 180, 240, 300]
+    private var partyColorIndex: Int = 0
+    private var partyTransition: Double = 0.0
 
     func start(bleManager: BLEManager, lightState: LightState, targetAddress: UInt16) {
         stop()
@@ -1699,7 +1702,7 @@ class SoftwareEffectEngine {
             }
             return
         }
-        scheduleNext()
+        fireStep()
     }
 
     func stop() {
@@ -1725,6 +1728,14 @@ class SoftwareEffectEngine {
         pulsingMax = lightState.pulsingMax
         pulsingShape = lightState.pulsingShape
         strobeHz = lightState.strobeHz
+        if !lightState.partyColors.isEmpty {
+            partyColors = lightState.partyColors
+            // Reset index if it's out of bounds after colors were removed
+            if partyColorIndex >= partyColors.count {
+                partyColorIndex = 0
+            }
+        }
+        partyTransition = lightState.partyTransition
     }
 
     private func scheduleNext() {
@@ -1754,6 +1765,9 @@ class SoftwareEffectEngine {
         case .strobe:
             // Strobe: full cycle = 1/Hz, this is the OFF half
             interval = 0.5 / strobeHz
+        case .party:
+            // Color cycling: frequency controls speed
+            interval = 1.5 * pow(0.80, frequency)
         case .welding:
             // Bursts with pauses
             let baseGap = 1.5 * pow(0.80, frequency)
@@ -1865,6 +1879,31 @@ class SoftwareEffectEngine {
             strobeFlash()
             return
 
+        case .party:
+            // Cycle through user-defined hue list
+            guard !partyColors.isEmpty else { scheduleNext(); return }
+            let currentHue = partyColors[partyColorIndex]
+            let nextIndex = (partyColorIndex + 1) % partyColors.count
+            partyColorIndex = nextIndex
+            sendColor(intensity: intensity, sleepMode: 1, hueOverride: Int(currentHue))
+
+            if partyTransition <= 0 || partyColors.count < 2 {
+                scheduleNext()
+            } else {
+                // Split interval into hold + sweep
+                let totalInterval = 1.5 * pow(0.80, frequency)
+                let transitionFrac = partyTransition / 100.0
+                let holdTime = totalInterval * (1 - transitionFrac)
+                let sweepTime = totalInterval * transitionFrac
+                let nextHue = partyColors[nextIndex]
+
+                let holdWork = DispatchWorkItem { [weak self] in
+                    self?.sweepPartyHue(from: currentHue, to: nextHue, duration: sweepTime)
+                }
+                workItem = holdWork
+                queue.asyncAfter(deadline: .now() + holdTime, execute: holdWork)
+            }
+
         case .welding:
             // Bright arc burst then off
             let burstCount = Int.random(in: 2...5)
@@ -1931,12 +1970,53 @@ class SoftwareEffectEngine {
         queue.asyncAfter(deadline: .now() + onTime, execute: work)
     }
 
-    private func sendColor(intensity: Double, sleepMode: Int) {
+    /// Sweep hue from startHue to endHue over duration, taking the shortest path around the wheel
+    private func sweepPartyHue(from startHue: Double, to endHue: Double, duration: Double) {
+        guard bleManager != nil else { return }
+        guard duration > 0.03 else {
+            // Too short to sweep, jump straight to next fireStep
+            fireStep()
+            return
+        }
+
+        let stepInterval: Double = 0.03
+        let totalSteps = max(1, Int(duration / stepInterval))
+
+        // Shortest path around hue wheel
+        var delta = endHue - startHue
+        if delta > 180 { delta -= 360 }
+        if delta < -180 { delta += 360 }
+
+        sweepPartyStep(startHue: startHue, delta: delta, step: 1, totalSteps: totalSteps, stepInterval: stepInterval)
+    }
+
+    private func sweepPartyStep(startHue: Double, delta: Double, step: Int, totalSteps: Int, stepInterval: Double) {
+        guard bleManager != nil else { return }
+        guard step <= totalSteps else {
+            fireStep()
+            return
+        }
+
+        let fraction = Double(step) / Double(totalSteps)
+        var hue = startHue + delta * fraction
+        if hue < 0 { hue += 360 }
+        if hue >= 360 { hue -= 360 }
+
+        sendColor(intensity: intensity, sleepMode: 1, hueOverride: Int(hue))
+
+        let work = DispatchWorkItem { [weak self] in
+            self?.sweepPartyStep(startHue: startHue, delta: delta, step: step + 1, totalSteps: totalSteps, stepInterval: stepInterval)
+        }
+        workItem = work
+        queue.asyncAfter(deadline: .now() + stepInterval, execute: work)
+    }
+
+    private func sendColor(intensity: Double, sleepMode: Int, hueOverride: Int? = nil) {
         guard let mgr = bleManager else { return }
-        if colorMode == .hsi {
+        if colorMode == .hsi || hueOverride != nil {
             mgr.setHSIWithSleep(
                 intensity: intensity,
-                hue: hue,
+                hue: hueOverride ?? hue,
                 saturation: saturation,
                 cctKelvin: hsiCCT,
                 sleepMode: sleepMode,

@@ -132,6 +132,8 @@ class LightState: ObservableObject {
     @Published var strobeHz: Double = 4.0 // 1-12 flashes per second
     @Published var strobeColorMode: LightMode = .cct // .cct or .hsi for strobe color
     @Published var effectColorMode: LightMode = .cct // .cct or .hsi for other effects
+    @Published var partyColors: [Double] = [0, 60, 120, 180, 240, 300] // hue values 0-360
+    @Published var partyTransition: Double = 0.0 // 0=snap, 100=full sweep between colors
 
     // MARK: - Computed Properties
 
@@ -220,7 +222,9 @@ class LightState: ObservableObject {
             cctKelvin: cctKelvin, hue: hue, saturation: saturation,
             hsiIntensity: hsiIntensity, hsiCCT: hsiCCT, red: red, green: green,
             blue: blue, white: white,
-            effectId: selectedEffect.rawValue, effectSpeed: effectSpeed
+            effectId: selectedEffect.rawValue, effectSpeed: effectSpeed,
+            partyColors: partyColors,
+            partyTransition: partyTransition
         )
         if let encoded = try? JSONEncoder().encode(data) {
             UserDefaults.standard.set(encoded, forKey: Self.statePrefix + id.uuidString)
@@ -245,6 +249,12 @@ class LightState: ObservableObject {
         selectedEffect = LightEffect(rawValue: state.effectId) ?? .none
         effectPlaying = false // Always start stopped — user must press play
         effectSpeed = state.effectSpeed
+        if let colors = state.partyColors, !colors.isEmpty {
+            partyColors = colors
+        }
+        if let transition = state.partyTransition {
+            partyTransition = transition
+        }
     }
 
     private struct PersistedState: Codable {
@@ -262,6 +272,8 @@ class LightState: ObservableObject {
         var white: Double
         var effectId: Int
         var effectSpeed: Double
+        var partyColors: [Double]?
+        var partyTransition: Double?
     }
 
     // MARK: - Presets
