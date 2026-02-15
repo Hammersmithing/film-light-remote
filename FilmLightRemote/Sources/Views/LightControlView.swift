@@ -44,6 +44,7 @@ struct LightControlView: View {
             }
             .padding()
         }
+        .onAppear { lightState.warmestCCT = cctRange.lowerBound }
         .onReceive(bleManager.$lastLightStatus.compactMap { $0 }) { status in
             lightState.applyStatus(status)
         }
@@ -849,6 +850,22 @@ private struct FaultyBulbDetail: View {
 
                 Slider(value: $lightState.faultyBulbRecovery, in: 0...100, step: 1)
                     .onChange(of: lightState.faultyBulbRecovery) { _ in syncEngineParams() }
+            }
+
+            // Warmth slider — shifts CCT warmer on intensity dips (like real incandescent)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Warmth")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text(Int(lightState.faultyBulbWarmth) == 0 ? "Off" : "\(Int(lightState.faultyBulbWarmth))")
+                        .font(.caption)
+                        .monospacedDigit()
+                }
+
+                Slider(value: $lightState.faultyBulbWarmth, in: 0...100, step: 1)
+                    .onChange(of: lightState.faultyBulbWarmth) { _ in syncEngineParams() }
             }
 
             // Range slider

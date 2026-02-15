@@ -1296,6 +1296,8 @@ class FaultyBulbEngine {
     private var maxIntensity: Double = 100.0
     private var biasValue: Double = 100.0
     private var recoveryValue: Double = 100.0
+    private var warmthValue: Double = 0.0
+    private var warmestCCT: Int = 2700
     private var pointCount: Int = 2
     private var transitionValue: Double = 0.0
     private var frequencyValue: Double = 5.0
@@ -1326,27 +1328,42 @@ class FaultyBulbEngine {
         maxIntensity = lightState.faultyBulbMax
         biasValue = lightState.faultyBulbBias
         recoveryValue = lightState.faultyBulbRecovery
+        warmthValue = lightState.faultyBulbWarmth
+        warmestCCT = Int(lightState.warmestCCT)
         pointCount = Int(lightState.faultyBulbPoints)
         transitionValue = lightState.faultyBulbTransition
         frequencyValue = lightState.faultyBulbFrequency
     }
 
-    /// Send intensity via CCT or HSI depending on color mode, using stored target address
+    /// Send intensity via CCT or HSI depending on color mode, using stored target address.
+    /// When warmth > 0, the CCT shifts warmer proportional to how deep the intensity dip is.
     private func sendIntensity(_ percent: Double, sleepMode: Int) {
         guard let mgr = bleManager else { return }
+
+        // Calculate warmth-shifted CCT: deeper dips → warmer color
+        let adjustedCCT: Int
+        if warmthValue > 0 && maxIntensity > minIntensity {
+            let dipDepth = max(0, min(1, (maxIntensity - percent) / (maxIntensity - minIntensity)))
+            let shift = dipDepth * (warmthValue / 100.0)
+            let baseCCT = colorMode == .hsi ? hsiCCT : cctKelvin
+            adjustedCCT = Int(Double(baseCCT) + Double(warmestCCT - baseCCT) * shift)
+        } else {
+            adjustedCCT = colorMode == .hsi ? hsiCCT : cctKelvin
+        }
+
         if colorMode == .hsi {
             mgr.setHSIWithSleep(
                 intensity: percent,
                 hue: hue,
                 saturation: saturation,
-                cctKelvin: hsiCCT,
+                cctKelvin: adjustedCCT,
                 sleepMode: sleepMode,
                 targetAddress: targetAddress
             )
         } else {
             mgr.setCCTWithSleep(
                 intensity: percent,
-                cctKelvin: cctKelvin,
+                cctKelvin: adjustedCCT,
                 sleepMode: sleepMode,
                 targetAddress: targetAddress
             )
