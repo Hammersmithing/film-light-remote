@@ -33,6 +33,19 @@ struct Cue: Identifiable, Codable {
         self.autoFollow = autoFollow
         self.followDelay = followDelay
     }
+
+    // Migrate old data: followDelay used to default to 1.0, now defaults to 0
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        lightEntries = try c.decode([LightCueEntry].self, forKey: .lightEntries)
+        fadeTime = try c.decode(Double.self, forKey: .fadeTime)
+        autoFollow = try c.decode(Bool.self, forKey: .autoFollow)
+        let rawDelay = try c.decode(Double.self, forKey: .followDelay)
+        // Old default was 1.0 — reset to 0 unless autoFollow is on
+        followDelay = (!autoFollow && rawDelay == 1.0) ? 0 : rawDelay
+    }
 }
 
 // MARK: - Light Cue Entry

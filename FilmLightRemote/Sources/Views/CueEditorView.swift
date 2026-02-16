@@ -88,9 +88,9 @@ struct CueEditorView: View {
                 Text("Timing")
             } footer: {
                 if cue.fadeTime == 0 {
-                    Text("Duration 0 = instant snap to this cue's state.")
+                    Text("Duration 0 = stays active until next GO.")
                 } else {
-                    Text("Fades from the previous state over the duration.")
+                    Text("Light holds for \(Self.formatSeconds(cue.fadeTime))s then the cue ends.")
                 }
             }
 
