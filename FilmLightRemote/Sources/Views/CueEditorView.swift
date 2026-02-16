@@ -44,7 +44,7 @@ struct CueEditorView: View {
                 // Timing
                 Section {
                     // Auto-follow toggle at top
-                    Toggle("Start Upon End of Previous Cue", isOn: $cue.autoFollow)
+                    Toggle("Auto Start", isOn: $cue.autoFollow)
 
                     // Delay
                     HStack {
