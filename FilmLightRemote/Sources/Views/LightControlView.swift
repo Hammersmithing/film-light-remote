@@ -1,7 +1,22 @@
 import SwiftUI
 
+// MARK: - Cue Preview Mode Environment Key
+/// When true, all BLE commands are suppressed — sliders still update LightState
+/// but nothing is sent over Bluetooth. Used by the cue light editor.
+private struct CuePreviewModeKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var cuePreviewMode: Bool {
+        get { self[CuePreviewModeKey.self] }
+        set { self[CuePreviewModeKey.self] = newValue }
+    }
+}
+
 struct LightControlView: View {
     @EnvironmentObject var bleManager: BLEManager
+    @Environment(\.cuePreviewMode) private var previewMode
     @ObservedObject var lightState: LightState
     var cctRange: ClosedRange<Double> = 2700...6500
     var intensityStep: Double = 1.0
@@ -21,7 +36,7 @@ struct LightControlView: View {
                         if newMode != .effects && lightState.selectedEffect != .none {
                             if lightState.effectPlaying {
                                 lightState.effectPlaying = false
-                                bleManager.stopEffect()
+                                if !previewMode { bleManager.stopEffect() }
                             }
                             lightState.selectedEffect = .none
                         }
@@ -46,7 +61,7 @@ struct LightControlView: View {
         }
         .onAppear { lightState.warmestCCT = cctRange.lowerBound }
         .onReceive(bleManager.$lastLightStatus.compactMap { $0 }) { status in
-            lightState.applyStatus(status)
+            if !previewMode { lightState.applyStatus(status) }
         }
     }
 }
@@ -146,6 +161,7 @@ private struct IntensitySlider: View {
 // MARK: - Power and Intensity Section
 struct PowerIntensitySection: View {
     @EnvironmentObject var bleManager: BLEManager
+    @Environment(\.cuePreviewMode) private var previewMode
     @ObservedObject var lightState: LightState
     var intensityStep: Double = 1.0
     private let throttle = ThrottledSender()
@@ -160,9 +176,8 @@ struct PowerIntensitySection: View {
             HStack {
                 Button {
                     lightState.isOn.toggle()
-                    if lightState.mode == .effects {
+                    if !previewMode && lightState.mode == .effects {
                         if !lightState.isOn {
-                            // Turning off — remember if effect was playing, then pause
                             effectWasPlaying = lightState.effectPlaying
                             if lightState.effectPlaying {
                                 lightState.effectPlaying = false
@@ -173,7 +188,6 @@ struct PowerIntensitySection: View {
                                 }
                             }
                         } else {
-                            // Turning on — resume effect if it was playing before
                             if effectWasPlaying {
                                 lightState.effectPlaying = true
                                 if lightState.selectedEffect == .faultyBulb {
@@ -198,7 +212,7 @@ struct PowerIntensitySection: View {
                             }
                         }
                     }
-                    bleManager.setPowerOn(lightState.isOn)
+                    if !previewMode { bleManager.setPowerOn(lightState.isOn) }
                 } label: {
                     Image(systemName: lightState.isOn ? "power.circle.fill" : "power.circle")
                         .font(.system(size: 44))
@@ -222,7 +236,8 @@ struct PowerIntensitySection: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
 
-                    IntensitySlider(value: $lightState.intensity, fineStep: intensityStep) {
+                    IntensitySlider(value: $lightState.intensity, fineStep: intensityStep) { [previewMode] in
+                        if previewMode { return }
                         throttle.send { [bleManager, lightState] in
                             switch lightState.mode {
                             case .hsi:
@@ -264,6 +279,7 @@ struct ModePicker: View {
 // MARK: - CCT Controls
 struct CCTControls: View {
     @EnvironmentObject var bleManager: BLEManager
+    @Environment(\.cuePreviewMode) private var previewMode
     @ObservedObject var lightState: LightState
     var cctRange: ClosedRange<Double> = 2700...6500
     private let throttle = ThrottledSender()
@@ -309,6 +325,7 @@ struct CCTControls: View {
                     Slider(value: $lightState.cctKelvin, in: cctRange, step: 100)
                         .tint(.clear)
                         .onChange(of: lightState.cctKelvin) { _ in
+                            if previewMode { return }
                             throttle.send { [bleManager, lightState] in
                                 bleManager.setCCT(Int(lightState.cctKelvin))
                             }
@@ -326,6 +343,7 @@ struct CCTControls: View {
 // MARK: - HSI Controls
 struct HSIControls: View {
     @EnvironmentObject var bleManager: BLEManager
+    @Environment(\.cuePreviewMode) private var previewMode
     @ObservedObject var lightState: LightState
     private let throttle = ThrottledSender()
 
@@ -389,6 +407,7 @@ struct HSIControls: View {
     }
 
     private func sendHSI() {
+        if previewMode { return }
         throttle.send { [bleManager, lightState] in
             bleManager.setHSI(hue: Int(lightState.hue),
                             saturation: Int(lightState.saturation),
@@ -400,6 +419,7 @@ struct HSIControls: View {
 // MARK: - Effects Controls
 struct EffectsControls: View {
     @EnvironmentObject var bleManager: BLEManager
+    @Environment(\.cuePreviewMode) private var previewMode
     @ObservedObject var lightState: LightState
     var cctRange: ClosedRange<Double> = 2700...6500
     private let throttle = ThrottledSender()
@@ -487,6 +507,7 @@ struct EffectsControls: View {
 
     private func playCurrentEffect() {
         guard lightState.selectedEffect != .none else { return }
+        if previewMode { return }
         lightState.effectPlaying = true
         if lightState.selectedEffect == .faultyBulb {
             bleManager.startFaultyBulb(lightState: lightState)
@@ -504,6 +525,7 @@ struct EffectsControls: View {
     private func stopCurrentEffect() {
         guard lightState.effectPlaying else { return }
         lightState.effectPlaying = false
+        if previewMode { return }
         if lightState.selectedEffect == .faultyBulb {
             bleManager.stopFaultyBulb()
         } else {
@@ -514,6 +536,7 @@ struct EffectsControls: View {
     /// Called when the color mode picker changes while playing — restart with the right method.
     private func restartCurrentEffect() {
         guard lightState.effectPlaying else { return }
+        if previewMode { return }
         bleManager.stopEffect()
         if needsSoftwareEngine {
             if lightState.selectedEffect == .paparazzi {
@@ -539,6 +562,7 @@ struct EffectsControls: View {
         guard lightState.selectedEffect != .none else { return }
         guard lightState.effectPlaying else { return }
         guard lightState.selectedEffect != .faultyBulb else { return }
+        if previewMode { return }
 
         if needsSoftwareEngine {
             if lightState.selectedEffect == .paparazzi {
@@ -593,6 +617,7 @@ private struct EffectButton: View {
 // MARK: - Effect Detail Panel
 private struct EffectDetailPanel: View {
     @EnvironmentObject var bleManager: BLEManager
+    @Environment(\.cuePreviewMode) private var previewMode
     let effect: LightEffect
     @ObservedObject var lightState: LightState
     var cctRange: ClosedRange<Double> = 2700...6500
@@ -603,7 +628,8 @@ private struct EffectDetailPanel: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            // Play / Stop button
+            // Play / Stop button — hidden in cue preview mode
+            if !previewMode {
             Button {
                 if lightState.effectPlaying {
                     onStop()
@@ -623,6 +649,7 @@ private struct EffectDetailPanel: View {
                 .background(lightState.effectPlaying ? Color.red.opacity(0.3) : Color.green.opacity(0.3))
                 .foregroundColor(lightState.effectPlaying ? .red : .green)
                 .cornerRadius(8)
+            }
             }
 
             switch effect {
@@ -759,6 +786,7 @@ private struct RangeSlider: View {
 // MARK: - Faulty Bulb Detail
 private struct FaultyBulbDetail: View {
     @EnvironmentObject var bleManager: BLEManager
+    @Environment(\.cuePreviewMode) private var previewMode
     @ObservedObject var lightState: LightState
     var cctRange: ClosedRange<Double> = 2700...6500
     private let throttle = ThrottledSender()
@@ -1034,12 +1062,14 @@ private struct FaultyBulbDetail: View {
 
     /// Push current lightState params to the running engine
     private func syncEngineParams() {
+        if previewMode { return }
         bleManager.faultyBulbEngine?.updateParams(from: lightState)
     }
 
     /// Immediately send the current color at the current intensity so slider changes are instant.
     /// Also pushes updated params to the running engine.
     private func sendColorNow() {
+        if previewMode { return }
         guard lightState.effectPlaying else { return }
         bleManager.faultyBulbEngine?.updateParams(from: lightState)
         throttle.send { [bleManager, lightState] in
@@ -1171,6 +1201,7 @@ private struct ColorModeEffectDetail: View {
 // MARK: - Strobe Detail
 private struct StrobeDetail: View {
     @EnvironmentObject var bleManager: BLEManager
+    @Environment(\.cuePreviewMode) private var previewMode
     @ObservedObject var lightState: LightState
     var cctRange: ClosedRange<Double> = 2700...6500
     var onChanged: () -> Void
@@ -1194,7 +1225,7 @@ private struct StrobeDetail: View {
 
                 Slider(value: $lightState.strobeHz, in: 1...12, step: 1)
                     .onChange(of: lightState.strobeHz) { _ in
-                        bleManager.softwareEffectEngine?.updateParams(from: lightState)
+                        if !previewMode { bleManager.softwareEffectEngine?.updateParams(from: lightState) }
                     }
             }
         }
@@ -1434,6 +1465,7 @@ private struct PartyDetail: View {
 // MARK: - Pulsing Detail
 private struct PulsingDetail: View {
     @EnvironmentObject var bleManager: BLEManager
+    @Environment(\.cuePreviewMode) private var previewMode
     @ObservedObject var lightState: LightState
     var cctRange: ClosedRange<Double> = 2700...6500
     var onChanged: () -> Void
@@ -1491,6 +1523,7 @@ private struct PulsingDetail: View {
     }
 
     private func syncParams() {
+        if previewMode { return }
         bleManager.softwareEffectEngine?.updateParams(from: lightState)
     }
 }

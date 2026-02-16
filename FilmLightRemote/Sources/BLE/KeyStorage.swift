@@ -16,6 +16,7 @@ class KeyStorage {
     private let deviceKeysKey = "mesh.deviceKeys"
     private let nextUnicastAddressKey = "mesh.nextUnicastAddress"
     private let savedLightsKey = "mesh.savedLights"
+    private let cueListsKey = "cues.cueLists"
 
     private let defaults = UserDefaults.standard
 
@@ -236,6 +237,40 @@ class KeyStorage {
         }
     }
 
+    // MARK: - Cue Lists
+
+    var cueLists: [CueList] {
+        get {
+            guard let data = defaults.data(forKey: cueListsKey) else { return [] }
+            return (try? JSONDecoder().decode([CueList].self, from: data)) ?? []
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue) {
+                defaults.set(data, forKey: cueListsKey)
+            }
+        }
+    }
+
+    func addCueList(_ list: CueList) {
+        var lists = cueLists
+        lists.append(list)
+        cueLists = lists
+    }
+
+    func updateCueList(_ list: CueList) {
+        var lists = cueLists
+        if let idx = lists.firstIndex(where: { $0.id == list.id }) {
+            lists[idx] = list
+            cueLists = lists
+        }
+    }
+
+    func removeCueList(_ list: CueList) {
+        var lists = cueLists
+        lists.removeAll { $0.id == list.id }
+        cueLists = lists
+    }
+
     // MARK: - Reset
 
     /// Reset all stored keys (for testing/debugging)
@@ -246,6 +281,7 @@ class KeyStorage {
         defaults.removeObject(forKey: deviceKeysKey)
         defaults.removeObject(forKey: nextUnicastAddressKey)
         defaults.removeObject(forKey: savedLightsKey)
+        defaults.removeObject(forKey: cueListsKey)
         print("KeyStorage: Reset all keys")
 
         // Regenerate base keys

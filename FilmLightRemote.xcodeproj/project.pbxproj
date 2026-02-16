@@ -29,6 +29,12 @@
 		F6520380E97A2CF03A4D2759 /* ScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7516003A19D055B376461731 /* ScannerView.swift */; };
 		FA5D2177F66FE33715125982 /* CryptoSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 6B538549EB6B5D82531EAA96 /* CryptoSwift */; };
 		FAF341FDFC2DF238C5DCF06C /* MeshConfigManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0B2D3A837E5C066289669C3 /* MeshConfigManager.swift */; };
+		1A2B3C4D5E6F7A8B9C0D1E2F /* CueModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6A7B8C9D0E1F2 /* CueModels.swift */; };
+		2B3C4D5E6F7A8B9C0D1E2F3A /* CueEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F6A7B8C9D0E1F2A3 /* CueEngine.swift */; };
+		3C4D5E6F7A8B9C0D1E2F3A4B /* CuesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3D4E5F6A7B8C9D0E1F2A3B4 /* CuesView.swift */; };
+		4D5E6F7A8B9C0D1E2F3A4B5C /* CueListDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5F6A7B8C9D0E1F2A3B4C5 /* CueListDetailView.swift */; };
+		5E6F7A8B9C0D1E2F3A4B5C6D /* CueEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F6A7B8C9D0E1F2A3B4C5D6 /* CueEditorView.swift */; };
+		6F7A8B9C0D1E2F3A4B5C6D7E /* CueLightEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6A7B8C9D0E1F2A3B4C5D6E7 /* CueLightEditorView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -54,6 +60,12 @@
 		DE57E401E0866863DC5B1146 /* MyLightsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyLightsView.swift; sourceTree = "<group>"; };
 		E6813B950AB3CC3D52353986 /* LightSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightSessionView.swift; sourceTree = "<group>"; };
 		F0B2D3A837E5C066289669C3 /* MeshConfigManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshConfigManager.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6A7B8C9D0E1F2 /* CueModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueModels.swift; sourceTree = "<group>"; };
+		B2C3D4E5F6A7B8C9D0E1F2A3 /* CueEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueEngine.swift; sourceTree = "<group>"; };
+		C3D4E5F6A7B8C9D0E1F2A3B4 /* CuesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CuesView.swift; sourceTree = "<group>"; };
+		D4E5F6A7B8C9D0E1F2A3B4C5 /* CueListDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueListDetailView.swift; sourceTree = "<group>"; };
+		E5F6A7B8C9D0E1F2A3B4C5D6 /* CueEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueEditorView.swift; sourceTree = "<group>"; };
+		F6A7B8C9D0E1F2A3B4C5D6E7 /* CueLightEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueLightEditorView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -81,6 +93,10 @@
 			children = (
 				BED2B28AB1F4072AC772DDBB /* AddLightFlowView.swift */,
 				6460FFFCC181B4F8B9CCDC0D /* ContentView.swift */,
+				E5F6A7B8C9D0E1F2A3B4C5D6 /* CueEditorView.swift */,
+				F6A7B8C9D0E1F2A3B4C5D6E7 /* CueLightEditorView.swift */,
+				D4E5F6A7B8C9D0E1F2A3B4C5 /* CueListDetailView.swift */,
+				C3D4E5F6A7B8C9D0E1F2A3B4 /* CuesView.swift */,
 				5E0AD22691AC13AA834B0487 /* DebugLogView.swift */,
 				9AAE3FBEA794C6D7DA1D597D /* LightControlView.swift */,
 				E6813B950AB3CC3D52353986 /* LightSessionView.swift */,
@@ -94,6 +110,7 @@
 		D1A660717A0D303C1804688C /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				A1B2C3D4E5F6A7B8C9D0E1F2 /* CueModels.swift */,
 				C12300A661DDD19AB7992487 /* LightState.swift */,
 				B18F642EB0F7B00AEA977D0B /* SavedLight.swift */,
 			);
@@ -104,6 +121,7 @@
 			isa = PBXGroup;
 			children = (
 				1E877B3320FD9730E91EC522 /* BLEManager.swift */,
+				B2C3D4E5F6A7B8C9D0E1F2A3 /* CueEngine.swift */,
 				1B5A689371BF2929D94096E9 /* KeyStorage.swift */,
 				F0B2D3A837E5C066289669C3 /* MeshConfigManager.swift */,
 				992513CD5F1FAA9B84055887 /* MeshCrypto.swift */,
@@ -219,6 +237,12 @@
 			files = (
 				F5C6FF848AAE9ED7FDA235B2 /* AddLightFlowView.swift in Sources */,
 				C09358CAB6C704237479F3FE /* BLEManager.swift in Sources */,
+				5E6F7A8B9C0D1E2F3A4B5C6D /* CueEditorView.swift in Sources */,
+				2B3C4D5E6F7A8B9C0D1E2F3A /* CueEngine.swift in Sources */,
+				6F7A8B9C0D1E2F3A4B5C6D7E /* CueLightEditorView.swift in Sources */,
+				4D5E6F7A8B9C0D1E2F3A4B5C /* CueListDetailView.swift in Sources */,
+				1A2B3C4D5E6F7A8B9C0D1E2F /* CueModels.swift in Sources */,
+				3C4D5E6F7A8B9C0D1E2F3A4B /* CuesView.swift in Sources */,
 				C137F62B9A5A9DD8C37EA7C0 /* ContentView.swift in Sources */,
 				237646B1C10C3EAD06E7E978 /* DebugLogView.swift in Sources */,
 				AD22780D400186BC14DF823B /* FilmLightRemoteApp.swift in Sources */,

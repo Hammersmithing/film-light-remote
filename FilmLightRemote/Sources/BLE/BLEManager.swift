@@ -74,6 +74,11 @@ class BLEManager: NSObject, ObservableObject {
     @Published var isBluetoothAvailable = false
     @Published var lastLightStatus: SidusLightStatus?
 
+    /// When true, incoming light status notifications are ignored.
+    /// Used during cue light editing to prevent the proxy's own state from
+    /// overwriting the user's slider values.
+    var suppressStatusUpdates = false
+
     // Debug/Analysis mode - logs all BLE traffic
     @Published var debugMode = true
     @Published var debugLog: [String] = []
@@ -522,11 +527,12 @@ class BLEManager: NSObject, ObservableObject {
         }
     }
 
-    func setEffect(effectType: Int, intensityPercent: Double, frq: Int, cctKelvin: Int = 5600, copCarColor: Int = 0, effectMode: Int = 0, hue: Int = 0, saturation: Int = 100) {
+    func setEffect(effectType: Int, intensityPercent: Double, frq: Int, cctKelvin: Int = 5600, copCarColor: Int = 0, effectMode: Int = 0, hue: Int = 0, saturation: Int = 100, targetAddress: UInt16? = nil) {
         currentMode = "effects"
         guard let peripheral = connectedPeripheral else { return }
+        let dst = targetAddress ?? targetUnicastAddress
 
-        log("setEffect(type:\(effectType), intensity:\(intensityPercent)%, frq:\(frq), mode:\(effectMode)) target=0x\(String(format: "%04X", targetUnicastAddress))")
+        log("setEffect(type:\(effectType), intensity:\(intensityPercent)%, frq:\(frq), mode:\(effectMode)) target=0x\(String(format: "%04X", dst))")
 
         var cmd = SidusEffectProtocol(effectType: effectType, intensityPercent: intensityPercent, frq: frq, cctKelvin: cctKelvin)
         cmd.color = copCarColor
@@ -540,10 +546,10 @@ class BLEManager: NSObject, ObservableObject {
         if let char = meshProxyIn {
             if let meshPDU = MeshCrypto.createStandardMeshPDU(
                 accessMessage: accessMessage,
-                dst: targetUnicastAddress
+                dst: dst
             ) {
                 peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
-                log("  Sent effect type=\(effectType) to 0x\(String(format: "%04X", targetUnicastAddress))")
+                log("  Sent effect type=\(effectType) to 0x\(String(format: "%04X", dst))")
             }
         }
     }
@@ -1212,8 +1218,10 @@ extension BLEManager: CBPeripheralDelegate {
                 if data.count >= 10 {
                     if let status = SidusStatusParser.parse(data) {
                         log("Parsed Sidus status from \(characteristic.uuid): type=\(status.commandType) intensity=\(status.intensity)% on=\(status.isOn)")
-                        DispatchQueue.main.async {
-                            self.lastLightStatus = status
+                        if !self.suppressStatusUpdates {
+                            DispatchQueue.main.async {
+                                self.lastLightStatus = status
+                            }
                         }
                     } else {
                         log("  (Not a valid Sidus status payload)")
@@ -1248,8 +1256,10 @@ extension BLEManager: CBPeripheralDelegate {
                         log("Sidus payload (10 bytes): \(sidusData.hexString)")
                         if let status = SidusStatusParser.parse(sidusData) {
                             log("*** LIGHT STATUS: type=\(status.commandType) intensity=\(status.intensity)% on=\(status.isOn) cct=\(status.cctKelvin ?? 0) hue=\(status.hue ?? 0) sat=\(status.saturation ?? 0) ***")
-                            DispatchQueue.main.async {
-                                self.lastLightStatus = status
+                            if !self.suppressStatusUpdates {
+                                DispatchQueue.main.async {
+                                    self.lastLightStatus = status
+                                }
                             }
                         } else {
                             log("Sidus payload checksum/parse failed — may be version or other response")
