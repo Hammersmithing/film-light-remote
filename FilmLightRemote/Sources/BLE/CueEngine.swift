@@ -66,9 +66,10 @@ class CueEngine: ObservableObject {
 
     /// Step 4: The current cue has finished its duration.
     private func cueDidEnd() {
-        // Stop software effect engines from this cue
+        // Stop software effect engines and dim lights to 0% for a clean break
         bleManager?.stopEffect()
         activeEffectStates.removeAll()
+        dimCueLights(allCues[currentCueIndex])
 
         let nextIndex = currentCueIndex + 1
         let hasNext = nextIndex < allCues.count
@@ -85,8 +86,6 @@ class CueEngine: ObservableObject {
                 isRunning = false
             }
         } else {
-            // Last cue — dim all lights to 0% and free up BLE bandwidth
-            dimAllLights()
             isRunning = false
         }
     }
@@ -236,28 +235,18 @@ class CueEngine: ObservableObject {
         }
     }
 
-    // MARK: - Dim All Lights
+    // MARK: - Dim Lights
 
-    /// Send 0% intensity to every light used in the cue sequence to free BLE bandwidth.
-    private func dimAllLights() {
+    /// Send 0% intensity to every light in the given cue for a clean break between cues.
+    private func dimCueLights(_ cue: Cue) {
         guard let bm = bleManager else { return }
 
-        // Collect unique unicast addresses across all cues
-        var seen = Set<UInt16>()
-        var addresses: [UInt16] = []
-        for cue in allCues {
-            for entry in cue.lightEntries {
-                if seen.insert(entry.unicastAddress).inserted {
-                    addresses.append(entry.unicastAddress)
-                }
-            }
-        }
-
-        for (i, addr) in addresses.enumerated() {
+        for (i, entry) in cue.lightEntries.enumerated() {
             let delay = Double(i) * 0.15
             if delay == 0 {
-                bm.setCCTWithSleep(intensity: 0, cctKelvin: 5600, sleepMode: 0, targetAddress: addr)
+                bm.setCCTWithSleep(intensity: 0, cctKelvin: 5600, sleepMode: 0, targetAddress: entry.unicastAddress)
             } else {
+                let addr = entry.unicastAddress
                 DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                     bm.setCCTWithSleep(intensity: 0, cctKelvin: 5600, sleepMode: 0, targetAddress: addr)
                 }
