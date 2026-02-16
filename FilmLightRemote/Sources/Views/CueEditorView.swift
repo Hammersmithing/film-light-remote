@@ -31,95 +31,99 @@ struct CueEditorView: View {
         return Swift.min(Swift.max(val, 0), ceiling)
     }
 
+    private var isEditingTiming: Bool { focusedField != nil }
+
     var body: some View {
-        Form {
-            // Name
-            Section("Cue Name") {
-                TextField("Name", text: $cue.name)
-            }
-
-            // Timing
-            Section {
-                // Auto-follow toggle at top
-                Toggle("Start Upon End of Previous Cue", isOn: $cue.autoFollow)
-
-                // Delay
-                HStack {
-                    Text("Delay")
-                    Spacer()
-                    TextField("0.00", text: $delayText)
-                        .keyboardType(.decimalPad)
-                        .multilineTextAlignment(.trailing)
-                        .focused($focusedField, equals: .delay)
-                        .frame(width: 70)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color(.systemGray5))
-                        .cornerRadius(6)
-                        .onChange(of: delayText) { _ in
-                            cue.followDelay = Self.parseSeconds(delayText, ceiling: 8)
-                        }
-                    Text("sec")
-                        .foregroundColor(.secondary)
-                        .font(.subheadline)
+        ZStack(alignment: .bottom) {
+            Form {
+                // Name
+                Section("Cue Name") {
+                    TextField("Name", text: $cue.name)
                 }
 
-                // Duration
-                HStack {
-                    Text("Duration")
-                    Spacer()
-                    TextField("0.00", text: $durationText)
-                        .keyboardType(.decimalPad)
-                        .multilineTextAlignment(.trailing)
-                        .focused($focusedField, equals: .duration)
-                        .frame(width: 70)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color(.systemGray5))
-                        .cornerRadius(6)
-                        .onChange(of: durationText) { _ in
-                            cue.fadeTime = Self.parseSeconds(durationText, ceiling: 30)
-                        }
-                    Text("sec")
-                        .foregroundColor(.secondary)
-                        .font(.subheadline)
-                }
-            } header: {
-                Text("Timing")
-            } footer: {
-                if cue.fadeTime == 0 {
-                    Text("Duration 0 = stays active until next GO.")
-                } else {
-                    Text("Light holds for \(Self.formatSeconds(cue.fadeTime))s then the cue ends.")
-                }
-            }
+                // Timing
+                Section {
+                    // Auto-follow toggle at top
+                    Toggle("Start Upon End of Previous Cue", isOn: $cue.autoFollow)
 
-            // Lights
-            Section {
-                if cue.lightEntries.isEmpty {
-                    Text("No lights in this cue")
-                        .foregroundColor(.secondary)
-                        .italic()
-                } else {
-                    ForEach(cue.lightEntries) { entry in
-                        LightEntryRow(entry: entry)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                editingEntry = entry
+                    // Delay
+                    HStack {
+                        Text("Delay")
+                        Spacer()
+                        TextField("0.00", text: $delayText)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .focused($focusedField, equals: .delay)
+                            .frame(width: 70)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color(.systemGray5))
+                            .cornerRadius(6)
+                            .onChange(of: delayText) { _ in
+                                cue.followDelay = Self.parseSeconds(delayText, ceiling: 8)
                             }
+                        Text("sec")
+                            .foregroundColor(.secondary)
+                            .font(.subheadline)
                     }
-                    .onDelete { offsets in
-                        cue.lightEntries.remove(atOffsets: offsets)
+
+                    // Duration
+                    HStack {
+                        Text("Duration")
+                        Spacer()
+                        TextField("0.00", text: $durationText)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .focused($focusedField, equals: .duration)
+                            .frame(width: 70)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color(.systemGray5))
+                            .cornerRadius(6)
+                            .onChange(of: durationText) { _ in
+                                cue.fadeTime = Self.parseSeconds(durationText, ceiling: 30)
+                            }
+                        Text("sec")
+                            .foregroundColor(.secondary)
+                            .font(.subheadline)
+                    }
+                } header: {
+                    Text("Timing")
+                } footer: {
+                    if cue.fadeTime == 0 {
+                        Text("Duration 0 = stays active until next GO.")
+                    } else {
+                        Text("Light holds for \(Self.formatSeconds(cue.fadeTime))s then the cue ends.")
                     }
                 }
 
-                Button {
-                    showingLightPicker = true
-                } label: {
-                    Label("Add Light", systemImage: "plus.circle")
+                // Lights
+                Section {
+                    if cue.lightEntries.isEmpty {
+                        Text("No lights in this cue")
+                            .foregroundColor(.secondary)
+                            .italic()
+                    } else {
+                        ForEach(cue.lightEntries) { entry in
+                            LightEntryRow(entry: entry)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    editingEntry = entry
+                                }
+                        }
+                        .onDelete { offsets in
+                            cue.lightEntries.remove(atOffsets: offsets)
+                        }
+                    }
+
+                    Button {
+                        showingLightPicker = true
+                    } label: {
+                        Label("Add Light", systemImage: "plus.circle")
+                    }
+                } header: {
+                    Text("Lights")
                 }
-            } header: {
-                Text("Lights")
             }
         }
         .navigationTitle("Edit Cue")
@@ -131,23 +135,33 @@ struct CueEditorView: View {
                     onSave(cue)
                 }
             }
-            ToolbarItemGroup(placement: .keyboard) {
-                Button("Cancel") {
-                    cancelField()
+        }
+        .safeAreaInset(edge: .bottom) {
+            if isEditingTiming {
+                HStack {
+                    Button("Cancel") {
+                        cancelField()
+                    }
+                    .foregroundColor(.red)
+                    Spacer()
+                    Button("Done") {
+                        commitField()
+                    }
+                    .fontWeight(.semibold)
                 }
-                Spacer()
-                Button("Done") {
-                    commitField()
-                }
-                .fontWeight(.semibold)
+                .padding(.horizontal)
+                .padding(.vertical, 10)
+                .background(.bar)
             }
         }
         .onChange(of: focusedField) { newField in
-            // Save the current text when a field gains focus so Cancel can revert
+            // Save the current text so Cancel can revert, then clear for fresh input
             if newField == .delay {
                 savedDelayText = delayText
+                delayText = ""
             } else if newField == .duration {
                 savedDurationText = durationText
+                durationText = ""
             }
         }
         .sheet(isPresented: $showingLightPicker) {
