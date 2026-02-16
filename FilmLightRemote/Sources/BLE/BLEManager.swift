@@ -599,64 +599,97 @@ class BLEManager: NSObject, ObservableObject {
 
     // MARK: - Software Effect Engines
 
-    private(set) var faultyBulbEngine: FaultyBulbEngine?
-    private(set) var paparazziEngine: PaparazziEngine?
-    private(set) var softwareEffectEngine: SoftwareEffectEngine?
+    private(set) var faultyBulbEngines: [FaultyBulbEngine] = []
+    private(set) var paparazziEngines: [PaparazziEngine] = []
+    private(set) var softwareEffectEngines: [SoftwareEffectEngine] = []
+
+    /// Convenience accessors for single-light views (returns first engine, if any)
+    var faultyBulbEngine: FaultyBulbEngine? { faultyBulbEngines.first }
+    var paparazziEngine: PaparazziEngine? { paparazziEngines.first }
+    var softwareEffectEngine: SoftwareEffectEngine? { softwareEffectEngines.first }
 
     /// Whether a background engine is actively running
-    var hasActiveEngine: Bool { faultyBulbEngine != nil || paparazziEngine != nil || softwareEffectEngine != nil }
+    var hasActiveEngine: Bool { !faultyBulbEngines.isEmpty || !paparazziEngines.isEmpty || !softwareEffectEngines.isEmpty }
 
-    /// Start the software-driven faulty bulb effect. Survives view lifecycle changes.
+    /// Start a faulty bulb engine. Multiple can run concurrently on different lights.
     func startFaultyBulb(lightState: LightState) {
-        stopFaultyBulb()
+        // Stop any existing engine on this same light
+        stopFaultyBulb(forAddress: targetUnicastAddress)
         let engine = FaultyBulbEngine()
-        faultyBulbEngine = engine
+        faultyBulbEngines.append(engine)
         engine.start(bleManager: self, lightState: lightState, targetAddress: targetUnicastAddress)
         log("Faulty bulb engine started for 0x\(String(format: "%04X", targetUnicastAddress))")
     }
 
-    /// Stop the software-driven faulty bulb effect.
-    func stopFaultyBulb() {
-        if faultyBulbEngine != nil {
-            faultyBulbEngine?.stop()
-            faultyBulbEngine = nil
-            log("Faulty bulb engine stopped")
+    /// Stop faulty bulb engine for a specific light, or all if no address given.
+    func stopFaultyBulb(forAddress address: UInt16? = nil) {
+        if let address = address {
+            faultyBulbEngines.removeAll { engine in
+                if engine.targetAddress == address {
+                    engine.stop()
+                    log("Faulty bulb engine stopped for 0x\(String(format: "%04X", address))")
+                    return true
+                }
+                return false
+            }
+        } else if !faultyBulbEngines.isEmpty {
+            faultyBulbEngines.forEach { $0.stop() }
+            faultyBulbEngines.removeAll()
+            log("All faulty bulb engines stopped")
         }
     }
 
-    /// Start the software-driven paparazzi effect (camera flash bursts in any color).
+    /// Start a paparazzi engine. Multiple can run concurrently on different lights.
     func startPaparazzi(lightState: LightState) {
-        stopPaparazzi()
+        stopPaparazzi(forAddress: targetUnicastAddress)
         let engine = PaparazziEngine()
-        paparazziEngine = engine
+        paparazziEngines.append(engine)
         engine.start(bleManager: self, lightState: lightState, targetAddress: targetUnicastAddress)
         log("Paparazzi engine started for 0x\(String(format: "%04X", targetUnicastAddress))")
     }
 
-    /// Stop the software-driven paparazzi effect.
-    func stopPaparazzi() {
-        if paparazziEngine != nil {
-            paparazziEngine?.stop()
-            paparazziEngine = nil
-            log("Paparazzi engine stopped")
+    /// Stop paparazzi engine for a specific light, or all if no address given.
+    func stopPaparazzi(forAddress address: UInt16? = nil) {
+        if let address = address {
+            paparazziEngines.removeAll { engine in
+                if engine.targetAddress == address {
+                    engine.stop()
+                    log("Paparazzi engine stopped for 0x\(String(format: "%04X", address))")
+                    return true
+                }
+                return false
+            }
+        } else if !paparazziEngines.isEmpty {
+            paparazziEngines.forEach { $0.stop() }
+            paparazziEngines.removeAll()
+            log("All paparazzi engines stopped")
         }
     }
 
-    /// Start the generic software effect engine (for HSI mode on effects without native HSI support).
+    /// Start a software effect engine. Multiple can run concurrently on different lights.
     func startSoftwareEffect(lightState: LightState) {
-        stopSoftwareEffect()
+        stopSoftwareEffect(forAddress: targetUnicastAddress)
         let engine = SoftwareEffectEngine()
-        softwareEffectEngine = engine
+        softwareEffectEngines.append(engine)
         engine.start(bleManager: self, lightState: lightState, targetAddress: targetUnicastAddress)
         log("Software effect engine started: \(lightState.selectedEffect) for 0x\(String(format: "%04X", targetUnicastAddress))")
     }
 
-    /// Stop the generic software effect engine.
-    func stopSoftwareEffect() {
-        if softwareEffectEngine != nil {
-            softwareEffectEngine?.stop()
-            softwareEffectEngine = nil
-            log("Software effect engine stopped")
+    /// Stop software effect engine for a specific light, or all if no address given.
+    func stopSoftwareEffect(forAddress address: UInt16? = nil) {
+        if let address = address {
+            softwareEffectEngines.removeAll { engine in
+                if engine.targetAddress == address {
+                    engine.stop()
+                    log("Software effect engine stopped for 0x\(String(format: "%04X", address))")
+                    return true
+                }
+                return false
+            }
+        } else if !softwareEffectEngines.isEmpty {
+            softwareEffectEngines.forEach { $0.stop() }
+            softwareEffectEngines.removeAll()
+            log("All software effect engines stopped")
         }
     }
 

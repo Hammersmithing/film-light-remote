@@ -5,6 +5,7 @@ struct CueEditorView: View {
     @State private var cue: Cue
     @State private var showingLightPicker = false
     @State private var editingEntry: LightCueEntry?
+    @State private var copiedState: CueState?
     @State private var delayText: String = ""
     @State private var durationText: String = ""
     @State private var savedDelayText: String = ""
@@ -105,14 +106,46 @@ struct CueEditorView: View {
                             .italic()
                     } else {
                         ForEach(cue.lightEntries) { entry in
-                            LightEntryRow(entry: entry)
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    editingEntry = entry
+                            HStack(spacing: 0) {
+                                LightEntryRow(entry: entry)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        editingEntry = entry
+                                    }
+
+                                Menu {
+                                    Button {
+                                        copiedState = entry.state
+                                    } label: {
+                                        Label("Copy Settings", systemImage: "doc.on.doc")
+                                    }
+
+                                    if copiedState != nil {
+                                        Button {
+                                            if let idx = cue.lightEntries.firstIndex(where: { $0.id == entry.id }),
+                                               let state = copiedState {
+                                                cue.lightEntries[idx].state = state
+                                            }
+                                        } label: {
+                                            Label("Paste Settings", systemImage: "doc.on.clipboard")
+                                        }
+                                    }
+
+                                    Divider()
+
+                                    Button(role: .destructive) {
+                                        cue.lightEntries.removeAll { $0.id == entry.id }
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                } label: {
+                                    Image(systemName: "ellipsis")
+                                        .font(.body)
+                                        .foregroundColor(.secondary)
+                                        .padding(.leading, 8)
+                                        .padding(.vertical, 8)
                                 }
-                        }
-                        .onDelete { offsets in
-                            cue.lightEntries.remove(atOffsets: offsets)
+                            }
                         }
                     }
 
@@ -186,6 +219,7 @@ struct CueEditorView: View {
                     editingEntry = nil
                 }
             }
+            .id(entry.id)
         }
     }
 

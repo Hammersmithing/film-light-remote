@@ -1,11 +1,12 @@
 import SwiftUI
 
-/// Edit one light's state within a cue — sends live BLE commands so the user
-/// can see their changes on the actual light through the mesh proxy.
+/// Edit one light's state within a cue — connects directly to the light's
+/// BLE peripheral so the user sees their changes in real time.
 struct CueLightEditorView: View {
     @EnvironmentObject var bleManager: BLEManager
     @State private var entry: LightCueEntry
     @StateObject private var lightState = LightState()
+    @State private var isReady = false
     var onSave: (LightCueEntry) -> Void
 
     /// Unicast address before we switched to this light (restored on dismiss).
@@ -26,13 +27,20 @@ struct CueLightEditorView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
+            // Header with connection status
             HStack {
                 Image(systemName: "lightbulb.fill")
                     .foregroundColor(.yellow)
                 Text(entry.lightName)
                     .font(.headline)
                 Spacer()
+                if !isReady {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                    Text("Connecting...")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
             }
             .padding()
             .background(Color(.systemGray6))
@@ -43,6 +51,8 @@ struct CueLightEditorView: View {
                 cctRange: cctRange,
                 intensityStep: intensityStep
             )
+            .allowsHitTesting(isReady)
+            .opacity(isReady ? 1.0 : 0.5)
         }
         .navigationTitle("Edit Light State")
         .navigationBarTitleDisplayMode(.inline)
@@ -50,34 +60,45 @@ struct CueLightEditorView: View {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") {
                     entry.state = CueState.from(lightState)
-                    restoreAddress()
                     onSave(entry)
                 }
             }
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") {
-                    restoreAddress()
                     onSave(entry) // return unchanged
                 }
             }
         }
         .onAppear {
-            // Point BLE commands at this light's unicast address
+            // Save current address so we can restore later
             previousUnicastAddress = bleManager.targetUnicastAddress
-            bleManager.targetUnicastAddress = entry.unicastAddress
-            // Block status feedback from the proxy — it's a different light
-            // and would overwrite slider values
+
+            // Block status feedback — the proxy light's status would overwrite sliders
             bleManager.suppressStatusUpdates = true
+
+            // Connect directly to this light's peripheral for live preview
+            bleManager.targetUnicastAddress = entry.unicastAddress
+            if let saved = KeyStorage.shared.savedLights.first(where: { $0.id == entry.lightId }) {
+                // Check if already connected to this light
+                if bleManager.connectedPeripheral?.identifier == saved.peripheralIdentifier,
+                   bleManager.connectionState == .ready {
+                    isReady = true
+                } else {
+                    isReady = false
+                    bleManager.connectToKnownPeripheral(identifier: saved.peripheralIdentifier)
+                }
+            }
+
             entry.state.apply(to: lightState)
+        }
+        .onReceive(bleManager.$connectionState) { state in
+            if state == .ready {
+                isReady = true
+            }
         }
         .onDisappear {
             bleManager.suppressStatusUpdates = false
-            restoreAddress()
+            bleManager.targetUnicastAddress = previousUnicastAddress
         }
-    }
-
-    private func restoreAddress() {
-        bleManager.suppressStatusUpdates = false
-        bleManager.targetUnicastAddress = previousUnicastAddress
     }
 }

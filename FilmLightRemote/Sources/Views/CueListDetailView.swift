@@ -59,7 +59,11 @@ struct CueListDetailView: View {
                 }
             }
         }
-        .sheet(item: $editingCue) { cue in
+        .sheet(item: $editingCue, onDismiss: {
+            // Reconnect to mesh proxy after editing — the light editor may have
+            // connected directly to individual lights for live preview
+            connectToMeshProxy()
+        }) { cue in
             NavigationStack {
                 CueEditorView(cue: cue) { updatedCue in
                     if let idx = cueList.cues.firstIndex(where: { $0.id == updatedCue.id }) {
