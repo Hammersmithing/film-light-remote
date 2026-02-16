@@ -85,7 +85,8 @@ class CueEngine: ObservableObject {
                 isRunning = false
             }
         } else {
-            // Last cue — done
+            // Last cue — dim all lights to 0% and free up BLE bandwidth
+            dimAllLights()
             isRunning = false
         }
     }
@@ -231,6 +232,35 @@ class CueEngine: ObservableObject {
                     saturation: Int(state.saturation),
                     targetAddress: address
                 )
+            }
+        }
+    }
+
+    // MARK: - Dim All Lights
+
+    /// Send 0% intensity to every light used in the cue sequence to free BLE bandwidth.
+    private func dimAllLights() {
+        guard let bm = bleManager else { return }
+
+        // Collect unique unicast addresses across all cues
+        var seen = Set<UInt16>()
+        var addresses: [UInt16] = []
+        for cue in allCues {
+            for entry in cue.lightEntries {
+                if seen.insert(entry.unicastAddress).inserted {
+                    addresses.append(entry.unicastAddress)
+                }
+            }
+        }
+
+        for (i, addr) in addresses.enumerated() {
+            let delay = Double(i) * 0.15
+            if delay == 0 {
+                bm.setCCTWithSleep(intensity: 0, cctKelvin: 5600, sleepMode: 0, targetAddress: addr)
+            } else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                    bm.setCCTWithSleep(intensity: 0, cctKelvin: 5600, sleepMode: 0, targetAddress: addr)
+                }
             }
         }
     }
