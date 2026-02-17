@@ -94,6 +94,13 @@ class TimelineEngine: ObservableObject {
         tempoMap = nil
     }
 
+    func setMetronomeEnabled(_ enabled: Bool) {
+        timeline?.metronomeEnabled = enabled
+        if enabled {
+            metronome.setup()  // no-op if already set up
+        }
+    }
+
     func seek(to time: Double) {
         let maxTime = effectiveDuration > 0 ? effectiveDuration : (timeline?.totalDuration ?? 30)
         let clamped = max(0, min(time, maxTime))

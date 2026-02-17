@@ -35,6 +35,10 @@ struct TimelineView: View {
     // Pinch zoom
     @State private var pinchBasePts: CGFloat?
 
+    // Playhead scrubbing
+    @State private var isDraggingPlayhead: Bool = false
+    @State private var playheadDragStartTime: Double = 0
+
     private let trackLabelWidth: CGFloat = 70
     private let trackHeight: CGFloat = 50
     private let rulerHeight: CGFloat = 30
@@ -205,6 +209,7 @@ struct TimelineView: View {
             let maxPts = availableWidth / 0.5
             let canvasWidth = max(availableWidth, ptsPerSecond * CGFloat(timelineLength))
 
+            ScrollViewReader { proxy in
             ScrollView([.horizontal, .vertical], showsIndicators: true) {
                 ZStack(alignment: .topLeading) {
                     // Background
@@ -249,11 +254,25 @@ struct TimelineView: View {
                         }
                     }
 
+                    // Playhead anchor for auto-scroll
+                    Color.clear
+                        .frame(width: 1, height: 1)
+                        .id("playhead")
+                        .offset(x: isBeatMode
+                            ? trackLabelWidth + CGFloat(engine.currentBeat) * ptsPerSecond
+                            : trackLabelWidth + CGFloat(engine.currentTime) * ptsPerSecond)
+
                     // Playhead
                     if engine.isPlaying || engine.currentTime > 0 {
                         playheadView(canvasHeight: totalCanvasHeight)
                     }
                 }
+            }
+            .onChange(of: engine.currentTime) { _ in
+                if engine.isPlaying && !isDraggingPlayhead {
+                    proxy.scrollTo("playhead", anchor: .center)
+                }
+            }
             }
             .simultaneousGesture(
                 MagnificationGesture()
@@ -309,11 +328,22 @@ struct TimelineView: View {
             }
         }
         .frame(height: rulerHeight)
+        .contentShape(Rectangle())
+        .onTapGesture { location in
+            seekPlayhead(to: Double(location.x) / Double(ptsPerSecond))
+        }
     }
 
     private func beatRuler(width: CGFloat) -> some View {
         let map = TempoMap(events: timeline.effectiveTempoEvents)
         let totalBeats = timeline.totalBeats ?? 32
+
+        // Determine label stride so bar numbers don't collide at low zoom
+        let approxBarWidth = 4.0 * ptsPerSecond
+        let barLabelStride: Int = approxBarWidth >= 30 ? 1
+            : approxBarWidth >= 15 ? 2
+            : approxBarWidth >= 7 ? 4 : 8
+        let showBeatTicks = ptsPerSecond >= 8
 
         return ZStack(alignment: .topLeading) {
             Rectangle()
@@ -327,35 +357,53 @@ struct TimelineView: View {
                 let beatPos = map.beatPosition(forBar: barNum)
                 if beatPos < totalBeats {
                     let x = CGFloat(beatPos) * ptsPerSecond
-                    // Bar number label + tall tick
-                    VStack(spacing: 1) {
-                        Text("\(barNum)")
-                            .font(.system(size: 9, design: .monospaced))
-                            .foregroundColor(.secondary)
+                    let showLabel = (barIdx % barLabelStride) == 0
+
+                    if showLabel {
+                        // Bar number label + tall tick
+                        VStack(spacing: 1) {
+                            Text("\(barNum)")
+                                .font(.system(size: 9, design: .monospaced))
+                                .foregroundColor(.secondary)
+                            Rectangle()
+                                .fill(Color.secondary.opacity(0.6))
+                                .frame(width: 1, height: 10)
+                        }
+                        .offset(x: x - 6)
+                    } else {
+                        // Short tick only
                         Rectangle()
-                            .fill(Color.secondary.opacity(0.6))
-                            .frame(width: 1, height: 10)
+                            .fill(Color.secondary.opacity(0.4))
+                            .frame(width: 1, height: 6)
+                            .offset(x: x, y: rulerHeight - 7)
                     }
-                    .offset(x: x - 6)
 
                     // Beat ticks within bar
-                    let tempo = map.tempo(atBeat: beatPos)
-                    let qnPerBar = tempo.timeSignature.quarterNotesPerBar
-                    let beatsInBar = Int(qnPerBar)
-                    ForEach(1..<beatsInBar, id: \.self) { beatInBar in
-                        let tickBeat = beatPos + Double(beatInBar)
-                        if tickBeat < totalBeats {
-                            let tickX = CGFloat(tickBeat) * ptsPerSecond
-                            Rectangle()
-                                .fill(Color.secondary.opacity(0.3))
-                                .frame(width: 1, height: 5)
-                                .offset(x: tickX, y: rulerHeight - 6)
+                    if showBeatTicks {
+                        let tempo = map.tempo(atBeat: beatPos)
+                        let qnPerBar = tempo.timeSignature.quarterNotesPerBar
+                        let beatsInBar = Int(qnPerBar)
+                        ForEach(1..<beatsInBar, id: \.self) { beatInBar in
+                            let tickBeat = beatPos + Double(beatInBar)
+                            if tickBeat < totalBeats {
+                                let tickX = CGFloat(tickBeat) * ptsPerSecond
+                                Rectangle()
+                                    .fill(Color.secondary.opacity(0.3))
+                                    .frame(width: 1, height: 5)
+                                    .offset(x: tickX, y: rulerHeight - 6)
+                            }
                         }
                     }
                 }
             }
         }
         .frame(height: rulerHeight)
+        .contentShape(Rectangle())
+        .onTapGesture { location in
+            let beat = Double(location.x) / Double(ptsPerSecond)
+            let map = TempoMap(events: timeline.effectiveTempoEvents)
+            seekPlayhead(to: map.seconds(forBeat: beat))
+        }
     }
 
     private func rulerInterval() -> Double {
@@ -546,10 +594,36 @@ struct TimelineView: View {
         } else {
             position = trackLabelWidth + CGFloat(engine.currentTime) * ptsPerSecond
         }
-        return Rectangle()
-            .fill(Color.red)
-            .frame(width: 2, height: canvasHeight)
-            .offset(x: position)
+        return ZStack {
+            Rectangle()
+                .fill(Color.red)
+                .frame(width: 2, height: canvasHeight)
+            Rectangle()
+                .fill(Color.clear)
+                .frame(width: 20, height: canvasHeight)
+                .contentShape(Rectangle())
+        }
+        .offset(x: position)
+        .gesture(
+            DragGesture(minimumDistance: 1)
+                .onChanged { value in
+                    if !isDraggingPlayhead {
+                        isDraggingPlayhead = true
+                        playheadDragStartTime = engine.currentTime
+                    }
+                    let deltaUnits = Double(value.translation.width) / Double(ptsPerSecond)
+                    if isBeatMode {
+                        let map = TempoMap(events: timeline.effectiveTempoEvents)
+                        let startBeat = map.beat(forSeconds: playheadDragStartTime)
+                        seekPlayhead(to: map.seconds(forBeat: startBeat + deltaUnits))
+                    } else {
+                        seekPlayhead(to: playheadDragStartTime + deltaUnits)
+                    }
+                }
+                .onEnded { _ in
+                    isDraggingPlayhead = false
+                }
+        )
     }
 
     // MARK: - Transport Bar
@@ -582,6 +656,7 @@ struct TimelineView: View {
             if isBeatMode {
                 Button {
                     timeline.metronomeEnabled = !(timeline.metronomeEnabled ?? false)
+                    engine.setMetronomeEnabled(timeline.metronomeEnabled == true)
                     save()
                 } label: {
                     Image(systemName: timeline.metronomeEnabled == true ? "metronome.fill" : "metronome")
@@ -817,6 +892,14 @@ struct TimelineView: View {
     }
 
     // MARK: - Helpers
+
+    private func seekPlayhead(to time: Double) {
+        engine.seek(to: time)
+        // Ensure currentBeat is updated even when engine's tempoMap is nil (e.g. before first play)
+        if isBeatMode {
+            engine.currentBeat = TempoMap(events: timeline.effectiveTempoEvents).beat(forSeconds: engine.currentTime)
+        }
+    }
 
     private func save() {
         KeyStorage.shared.updateTimeline(timeline)
