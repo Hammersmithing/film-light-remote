@@ -97,6 +97,9 @@ struct CueLightEditorView: View {
             }
         }
         .onDisappear {
+            // Turn the light off so it doesn't persist at the previewed state
+            bleManager.stopEffect()
+            bleManager.sendSleep(false, targetAddress: entry.unicastAddress)
             bleManager.suppressStatusUpdates = false
             bleManager.targetUnicastAddress = previousUnicastAddress
         }
