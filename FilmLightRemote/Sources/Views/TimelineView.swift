@@ -9,7 +9,7 @@ struct TimelineView: View {
     @State var timeline: Timeline
     var onUpdate: () -> Void
 
-    // Zoom: points per second
+    // Zoom: points per second (or per beat in beat mode)
     @State private var ptsPerSecond: CGFloat = 40
     @State private var scrollOffset: CGFloat = 0
 
@@ -21,6 +21,7 @@ struct TimelineView: View {
     @State private var showDurationWarning = false
     @State private var pendingDuration: Double = 0
     @State private var showAudioPicker = false
+    @State private var editingTempoEvent: TempoEvent?
 
     // Dragging
     @State private var draggingBlockId: UUID?
@@ -37,7 +38,15 @@ struct TimelineView: View {
     private let trackLabelWidth: CGFloat = 70
     private let trackHeight: CGFloat = 50
     private let rulerHeight: CGFloat = 30
+    private let tempoLaneHeight: CGFloat = 28
     private let snapGrid: Double = 0.25
+
+    private var isBeatMode: Bool { timeline.effectiveMode == .beats }
+
+    /// The authoritative timeline length in the current mode's unit.
+    private var timelineLength: Double {
+        isBeatMode ? (timeline.totalBeats ?? 32) : timeline.totalDuration
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -58,7 +67,13 @@ struct TimelineView: View {
                         }
                     }
                     Button { showDurationEditor = true } label: {
-                        Label("Set Duration", systemImage: "clock")
+                        Label(isBeatMode ? "Set Length (Bars)" : "Set Duration", systemImage: "clock")
+                    }
+                    Button {
+                        toggleMode()
+                    } label: {
+                        Label(isBeatMode ? "Switch to Seconds Mode" : "Switch to Beat Mode",
+                              systemImage: isBeatMode ? "clock" : "metronome")
                     }
                     Button {
                         timeline.name = timeline.name // trigger rename alert
@@ -101,30 +116,65 @@ struct TimelineView: View {
                 }
             }
         }
+        .sheet(item: $editingTempoEvent) { event in
+            NavigationStack {
+                TempoEventEditorView(
+                    event: event,
+                    isFirst: event.beatPosition < 0.001
+                ) { updated in
+                    applyTempoEventEdit(updated)
+                    editingTempoEvent = nil
+                } onDelete: {
+                    deleteTempoEvent(event)
+                    editingTempoEvent = nil
+                }
+            }
+        }
         .alert("Timeline Duration", isPresented: $showDurationEditor) {
-            TextField("Seconds", text: $durationText)
+            TextField(isBeatMode ? "Bars" : "Seconds", text: $durationText)
                 .keyboardType(.decimalPad)
             Button("Cancel", role: .cancel) {}
             Button("Set") {
                 if let d = Double(durationText), d > 0 {
-                    let outOfBounds = blocksOutsideDuration(d)
-                    if outOfBounds > 0 {
-                        pendingDuration = d
-                        showDurationWarning = true
+                    if isBeatMode {
+                        // d is in bars — convert to beats
+                        let map = TempoMap(events: timeline.effectiveTempoEvents)
+                        let beats = map.beatPosition(forBar: Int(d) + 1)
+                        let outOfBounds = blocksOutsideDuration(beats)
+                        if outOfBounds > 0 {
+                            pendingDuration = beats
+                            showDurationWarning = true
+                        } else {
+                            timeline.totalBeats = beats
+                            timeline.totalDuration = map.totalSeconds(forBeats: beats)
+                            save()
+                        }
                     } else {
-                        timeline.totalDuration = d
-                        save()
+                        let outOfBounds = blocksOutsideDuration(d)
+                        if outOfBounds > 0 {
+                            pendingDuration = d
+                            showDurationWarning = true
+                        } else {
+                            timeline.totalDuration = d
+                            save()
+                        }
                     }
                 }
             }
         } message: {
-            Text("Set the total timeline length in seconds.")
+            Text(isBeatMode ? "Set the total timeline length in bars." : "Set the total timeline length in seconds.")
         }
         .alert("Blocks Outside Timeline", isPresented: $showDurationWarning) {
             Button("Cancel", role: .cancel) { pendingDuration = 0 }
             Button("Delete & Set Duration", role: .destructive) {
                 removeBlocksOutsideDuration(pendingDuration)
-                timeline.totalDuration = pendingDuration
+                if isBeatMode {
+                    timeline.totalBeats = pendingDuration
+                    let map = TempoMap(events: timeline.effectiveTempoEvents)
+                    timeline.totalDuration = map.totalSeconds(forBeats: pendingDuration)
+                } else {
+                    timeline.totalDuration = pendingDuration
+                }
                 pendingDuration = 0
                 save()
             }
@@ -139,7 +189,7 @@ struct TimelineView: View {
         }
         .onAppear {
             engine.bleManager = bleManager
-            durationText = String(Int(timeline.totalDuration))
+            updateDurationText()
         }
         .onDisappear {
             engine.stop()
@@ -150,7 +200,10 @@ struct TimelineView: View {
 
     private var timelineCanvas: some View {
         GeometryReader { geo in
-            let canvasWidth = ptsPerSecond * CGFloat(timeline.totalDuration)
+            let availableWidth = geo.size.width - trackLabelWidth
+            let minPts = max(1, availableWidth / CGFloat(timelineLength))
+            let maxPts = availableWidth / 0.5
+            let canvasWidth = max(availableWidth, ptsPerSecond * CGFloat(timelineLength))
 
             ScrollView([.horizontal, .vertical], showsIndicators: true) {
                 ZStack(alignment: .topLeading) {
@@ -163,6 +216,18 @@ struct TimelineView: View {
                         HStack(spacing: 0) {
                             Color.clear.frame(width: trackLabelWidth, height: rulerHeight)
                             timeRuler(width: canvasWidth)
+                        }
+
+                        // Tempo lane (beat mode only)
+                        if isBeatMode {
+                            HStack(spacing: 0) {
+                                Text("Tempo")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .frame(width: trackLabelWidth, height: tempoLaneHeight)
+                                    .background(Color(.systemGray6))
+                                tempoLane(width: canvasWidth)
+                            }
+                            Divider()
                         }
 
                         // Audio lane
@@ -194,7 +259,7 @@ struct TimelineView: View {
                 MagnificationGesture()
                     .onChanged { scale in
                         if pinchBasePts == nil { pinchBasePts = ptsPerSecond }
-                        ptsPerSecond = max(10, min(200, pinchBasePts! * scale))
+                        ptsPerSecond = max(minPts, min(maxPts, pinchBasePts! * scale))
                     }
                     .onEnded { _ in
                         pinchBasePts = nil
@@ -205,18 +270,28 @@ struct TimelineView: View {
 
     private var totalCanvasHeight: CGFloat {
         let audioLane: CGFloat = timeline.audioFileName != nil ? (trackHeight + 1) : 0
-        return rulerHeight + audioLane + CGFloat(timeline.tracks.count) * (trackHeight + 1)
+        let tempo: CGFloat = isBeatMode ? (tempoLaneHeight + 1) : 0
+        return rulerHeight + tempo + audioLane + CGFloat(timeline.tracks.count) * (trackHeight + 1)
     }
 
     // MARK: - Time Ruler
 
     private func timeRuler(width: CGFloat) -> some View {
+        Group {
+            if isBeatMode {
+                beatRuler(width: width)
+            } else {
+                secondsRuler(width: width)
+            }
+        }
+    }
+
+    private func secondsRuler(width: CGFloat) -> some View {
         ZStack(alignment: .topLeading) {
             Rectangle()
                 .fill(Color(.systemGray5))
                 .frame(width: width, height: rulerHeight)
 
-            // Tick marks
             let interval = rulerInterval()
             let count = Int(timeline.totalDuration / interval) + 1
             ForEach(0..<count, id: \.self) { i in
@@ -236,10 +311,97 @@ struct TimelineView: View {
         .frame(height: rulerHeight)
     }
 
+    private func beatRuler(width: CGFloat) -> some View {
+        let map = TempoMap(events: timeline.effectiveTempoEvents)
+        let totalBeats = timeline.totalBeats ?? 32
+
+        return ZStack(alignment: .topLeading) {
+            Rectangle()
+                .fill(Color(.systemGray5))
+                .frame(width: width, height: rulerHeight)
+
+            // Draw bar lines and beat ticks
+            let maxBar = 500 // safety limit
+            ForEach(0..<maxBar, id: \.self) { barIdx in
+                let barNum = barIdx + 1
+                let beatPos = map.beatPosition(forBar: barNum)
+                if beatPos < totalBeats {
+                    let x = CGFloat(beatPos) * ptsPerSecond
+                    // Bar number label + tall tick
+                    VStack(spacing: 1) {
+                        Text("\(barNum)")
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundColor(.secondary)
+                        Rectangle()
+                            .fill(Color.secondary.opacity(0.6))
+                            .frame(width: 1, height: 10)
+                    }
+                    .offset(x: x - 6)
+
+                    // Beat ticks within bar
+                    let tempo = map.tempo(atBeat: beatPos)
+                    let qnPerBar = tempo.timeSignature.quarterNotesPerBar
+                    let beatsInBar = Int(qnPerBar)
+                    ForEach(1..<beatsInBar, id: \.self) { beatInBar in
+                        let tickBeat = beatPos + Double(beatInBar)
+                        if tickBeat < totalBeats {
+                            let tickX = CGFloat(tickBeat) * ptsPerSecond
+                            Rectangle()
+                                .fill(Color.secondary.opacity(0.3))
+                                .frame(width: 1, height: 5)
+                                .offset(x: tickX, y: rulerHeight - 6)
+                        }
+                    }
+                }
+            }
+        }
+        .frame(height: rulerHeight)
+    }
+
     private func rulerInterval() -> Double {
         if ptsPerSecond > 80 { return 1 }
         if ptsPerSecond > 30 { return 5 }
         return 10
+    }
+
+    // MARK: - Tempo Lane
+
+    private func tempoLane(width: CGFloat) -> some View {
+        let events = timeline.effectiveTempoEvents
+
+        return ZStack(alignment: .leading) {
+            Rectangle()
+                .fill(Color(.systemGray6).opacity(0.3))
+                .frame(width: width, height: tempoLaneHeight)
+                .contentShape(Rectangle())
+                .onTapGesture { location in
+                    let beat = Double(location.x) / Double(ptsPerSecond)
+                    let map = TempoMap(events: events)
+                    let snappedBeat = map.snapToBar(beat)
+                    // Don't add at position 0 if one already exists there
+                    if events.contains(where: { abs($0.beatPosition - snappedBeat) < 0.001 }) {
+                        return
+                    }
+                    let prevTempo = map.tempo(atBeat: snappedBeat)
+                    let newEvent = TempoEvent(beatPosition: snappedBeat, bpm: prevTempo.bpm, timeSignature: prevTempo.timeSignature)
+                    editingTempoEvent = newEvent
+                }
+
+            ForEach(events) { event in
+                let x = CGFloat(event.beatPosition) * ptsPerSecond
+                Text("\(Int(event.bpm)) \(event.timeSignature.displayString)")
+                    .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.indigo))
+                    .offset(x: x)
+                    .onTapGesture {
+                        editingTempoEvent = event
+                    }
+            }
+        }
+        .frame(width: width, height: tempoLaneHeight)
     }
 
     // MARK: - Track Label
@@ -378,21 +540,27 @@ struct TimelineView: View {
     // MARK: - Playhead
 
     private func playheadView(canvasHeight: CGFloat) -> some View {
-        let x = trackLabelWidth + CGFloat(engine.currentTime) * ptsPerSecond
+        let position: CGFloat
+        if isBeatMode {
+            position = trackLabelWidth + CGFloat(engine.currentBeat) * ptsPerSecond
+        } else {
+            position = trackLabelWidth + CGFloat(engine.currentTime) * ptsPerSecond
+        }
         return Rectangle()
             .fill(Color.red)
             .frame(width: 2, height: canvasHeight)
-            .offset(x: x)
+            .offset(x: position)
     }
 
     // MARK: - Transport Bar
 
     private var transportBar: some View {
-        HStack(spacing: 20) {
+        HStack(spacing: 16) {
             // Rewind
             Button {
                 engine.stop()
                 engine.currentTime = 0
+                engine.currentBeat = 0
             } label: {
                 Image(systemName: "backward.end.fill")
                     .font(.title3)
@@ -410,12 +578,33 @@ struct TimelineView: View {
                     .font(.title2)
             }
 
+            // Metronome toggle (beat mode only)
+            if isBeatMode {
+                Button {
+                    timeline.metronomeEnabled = !(timeline.metronomeEnabled ?? false)
+                    save()
+                } label: {
+                    Image(systemName: timeline.metronomeEnabled == true ? "metronome.fill" : "metronome")
+                        .font(.title3)
+                        .foregroundColor(timeline.metronomeEnabled == true ? .accentColor : .secondary)
+                }
+            }
+
             Spacer()
 
             // Time display
-            Text("\(formatTime(engine.currentTime)) / \(formatTime(timeline.totalDuration))")
-                .font(.system(.body, design: .monospaced))
-                .foregroundColor(.secondary)
+            if isBeatMode {
+                let map = TempoMap(events: timeline.effectiveTempoEvents)
+                let (bar, beatInBar) = map.barBeat(forBeat: engine.currentBeat)
+                let totalBars = totalBarsCount()
+                Text("Bar \(bar).\(Int(beatInBar) + 1) / \(totalBars)")
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundColor(.secondary)
+            } else {
+                Text("\(formatTime(engine.currentTime)) / \(formatTime(timeline.totalDuration))")
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
@@ -426,8 +615,10 @@ struct TimelineView: View {
 
     private func addBlock(to trackId: UUID, at time: Double) {
         guard let idx = timeline.tracks.firstIndex(where: { $0.id == trackId }) else { return }
-        let clamped = min(time, timeline.totalDuration - 1)
-        let block = TimelineBlock(startTime: max(0, clamped), duration: 2)
+        let maxTime = timelineLength
+        let clamped = min(time, maxTime - 1)
+        let defaultDuration: Double = isBeatMode ? 4 : 2  // 1 bar or 2 seconds
+        let block = TimelineBlock(startTime: max(0, clamped), duration: defaultDuration)
         timeline.tracks[idx].blocks.append(block)
         timeline.tracks[idx].blocks.sort { $0.startTime < $1.startTime }
         save()
@@ -453,7 +644,8 @@ struct TimelineView: View {
     private func moveBlock(trackId: UUID, blockId: UUID, to newTime: Double) {
         guard let tIdx = timeline.tracks.firstIndex(where: { $0.id == trackId }),
               let bIdx = timeline.tracks[tIdx].blocks.firstIndex(where: { $0.id == blockId }) else { return }
-        let snapped = snapToGrid(max(0, min(newTime, timeline.totalDuration - timeline.tracks[tIdx].blocks[bIdx].duration)))
+        let maxTime = timelineLength
+        let snapped = snapToGrid(max(0, min(newTime, maxTime - timeline.tracks[tIdx].blocks[bIdx].duration)))
         timeline.tracks[tIdx].blocks[bIdx].startTime = snapped
     }
 
@@ -467,9 +659,9 @@ struct TimelineView: View {
         }
 
         let block = timeline.tracks[tIdx].blocks[bIdx]
-        let deltaSec = Double(dragX) / Double(ptsPerSecond)
-        let newDur = max(0.25, block.duration + deltaSec)
-        let maxDur = timeline.totalDuration - block.startTime
+        let delta = Double(dragX) / Double(ptsPerSecond)
+        let newDur = max(0.25, block.duration + delta)
+        let maxDur = timelineLength - block.startTime
         timeline.tracks[tIdx].blocks[bIdx].duration = snapToGrid(min(newDur, maxDur))
     }
 
@@ -477,6 +669,77 @@ struct TimelineView: View {
         guard let tIdx = timeline.tracks.firstIndex(where: { $0.id == trackId }),
               let bIdx = timeline.tracks[tIdx].blocks.firstIndex(where: { $0.id == blockId }) else { return }
         timeline.tracks[tIdx].blocks[bIdx].state = newState
+        save()
+    }
+
+    // MARK: - Tempo Event Operations
+
+    private func applyTempoEventEdit(_ event: TempoEvent) {
+        var events = timeline.tempoEvents ?? []
+        if let idx = events.firstIndex(where: { $0.id == event.id }) {
+            events[idx] = event
+        } else {
+            events.append(event)
+        }
+        events.sort { $0.beatPosition < $1.beatPosition }
+        timeline.tempoEvents = events
+        // Update totalDuration to reflect new tempo
+        if isBeatMode, let beats = timeline.totalBeats {
+            let map = TempoMap(events: timeline.effectiveTempoEvents)
+            timeline.totalDuration = map.totalSeconds(forBeats: beats)
+        }
+        save()
+    }
+
+    private func deleteTempoEvent(_ event: TempoEvent) {
+        var events = timeline.tempoEvents ?? []
+        events.removeAll { $0.id == event.id }
+        timeline.tempoEvents = events.isEmpty ? nil : events
+        if isBeatMode, let beats = timeline.totalBeats {
+            let map = TempoMap(events: timeline.effectiveTempoEvents)
+            timeline.totalDuration = map.totalSeconds(forBeats: beats)
+        }
+        save()
+    }
+
+    // MARK: - Mode Toggle
+
+    private func toggleMode() {
+        if isBeatMode {
+            // Beat -> Seconds: convert block positions
+            let map = TempoMap(events: timeline.effectiveTempoEvents)
+            for i in timeline.tracks.indices {
+                for j in timeline.tracks[i].blocks.indices {
+                    let block = timeline.tracks[i].blocks[j]
+                    let startSec = map.seconds(forBeat: block.startTime)
+                    let endSec = map.seconds(forBeat: block.startTime + block.duration)
+                    timeline.tracks[i].blocks[j].startTime = startSec
+                    timeline.tracks[i].blocks[j].duration = endSec - startSec
+                }
+            }
+            if let beats = timeline.totalBeats {
+                timeline.totalDuration = map.totalSeconds(forBeats: beats)
+            }
+            timeline.mode = .seconds
+        } else {
+            // Seconds -> Beats: convert block positions
+            let map = TempoMap(events: timeline.effectiveTempoEvents)
+            for i in timeline.tracks.indices {
+                for j in timeline.tracks[i].blocks.indices {
+                    let block = timeline.tracks[i].blocks[j]
+                    let startBeat = map.beat(forSeconds: block.startTime)
+                    let endBeat = map.beat(forSeconds: block.startTime + block.duration)
+                    timeline.tracks[i].blocks[j].startTime = startBeat
+                    timeline.tracks[i].blocks[j].duration = endBeat - startBeat
+                }
+            }
+            let totalBeats = map.beat(forSeconds: timeline.totalDuration)
+            timeline.totalBeats = totalBeats
+            timeline.mode = .beats
+            if timeline.tempoEvents == nil {
+                timeline.tempoEvents = [TempoEvent()]
+            }
+        }
         save()
     }
 
@@ -583,6 +846,21 @@ struct TimelineView: View {
         let secs = Int(t) % 60
         return String(format: "%d:%02d", mins, secs)
     }
+
+    private func totalBarsCount() -> Int {
+        let map = TempoMap(events: timeline.effectiveTempoEvents)
+        let totalBeats = timeline.totalBeats ?? 32
+        let (bar, _) = map.barBeat(forBeat: totalBeats)
+        return bar
+    }
+
+    private func updateDurationText() {
+        if isBeatMode {
+            durationText = String(totalBarsCount())
+        } else {
+            durationText = String(Int(timeline.totalDuration))
+        }
+    }
 }
 
 // MARK: - Editing Info
@@ -595,6 +873,101 @@ private struct EditingBlockInfo: Identifiable {
     let lightName: String
     let unicastAddress: UInt16
     let state: CueState
+}
+
+// MARK: - Tempo Event Editor
+
+struct TempoEventEditorView: View {
+    @State var event: TempoEvent
+    let isFirst: Bool
+    var onSave: (TempoEvent) -> Void
+    var onDelete: () -> Void
+    @Environment(\.dismiss) var dismiss
+
+    @State private var bpmText: String = ""
+
+    private let bpmPresets: [Double] = [60, 80, 100, 120, 140, 160]
+    private let timeSigPresets: [(Int, Int)] = [(4,4), (3,4), (2,4), (6,8), (5,4), (7,8)]
+
+    var body: some View {
+        Form {
+            Section("Tempo") {
+                HStack {
+                    Text("BPM")
+                    TextField("BPM", text: $bpmText)
+                        .keyboardType(.decimalPad)
+                        .multilineTextAlignment(.trailing)
+                        .onChange(of: bpmText) { newVal in
+                            if let v = Double(newVal), v > 0 { event.bpm = v }
+                        }
+                }
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(bpmPresets, id: \.self) { preset in
+                            Button("\(Int(preset))") {
+                                event.bpm = preset
+                                bpmText = "\(Int(preset))"
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(event.bpm == preset ? .accentColor : .secondary)
+                        }
+                    }
+                }
+            }
+
+            Section("Time Signature") {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(timeSigPresets, id: \.0) { preset in
+                            let ts = TimeSignature(beatsPerBar: preset.0, beatUnit: preset.1)
+                            Button(ts.displayString) {
+                                event.timeSignature = ts
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(event.timeSignature == ts ? .accentColor : .secondary)
+                        }
+                    }
+                }
+
+                Stepper("Beats per bar: \(event.timeSignature.beatsPerBar)",
+                        value: $event.timeSignature.beatsPerBar, in: 1...16)
+                Picker("Beat unit", selection: $event.timeSignature.beatUnit) {
+                    Text("2").tag(2)
+                    Text("4").tag(4)
+                    Text("8").tag(8)
+                    Text("16").tag(16)
+                }
+            }
+
+            if !isFirst {
+                Section {
+                    Button(role: .destructive) {
+                        onDelete()
+                        dismiss()
+                    } label: {
+                        Label("Delete Tempo Change", systemImage: "trash")
+                    }
+                }
+            }
+        }
+        .navigationTitle(isFirst ? "Initial Tempo" : "Tempo Change")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") { dismiss() }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Save") {
+                    onSave(event)
+                    dismiss()
+                }
+            }
+        }
+        .onAppear {
+            bpmText = "\(Int(event.bpm))"
+        }
+    }
 }
 
 // MARK: - Light Picker for Timeline Tracks

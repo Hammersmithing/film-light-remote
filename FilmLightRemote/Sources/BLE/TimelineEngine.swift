@@ -7,6 +7,7 @@ import AVFoundation
 class TimelineEngine: ObservableObject {
     @Published var isPlaying: Bool = false
     @Published var currentTime: Double = 0.0
+    @Published var currentBeat: Double = 0.0
 
     weak var bleManager: BLEManager?
 
@@ -23,6 +24,12 @@ class TimelineEngine: ObservableObject {
     /// LightState instances kept alive for software effect engines.
     private var activeEffectStates: [LightState] = []
 
+    // Beat mode
+    private var tempoMap: TempoMap?
+    private let metronome = MetronomeEngine()
+    private var previousTime: Double = 0
+    private var effectiveDuration: Double = 0
+
     // MARK: - Playback Control
 
     func play(timeline: Timeline) {
@@ -31,9 +38,25 @@ class TimelineEngine: ObservableObject {
         firedBlockIds.removeAll()
         endedBlockIds.removeAll()
 
+        // Build TempoMap for beat mode
+        if timeline.effectiveMode == .beats {
+            tempoMap = TempoMap(events: timeline.effectiveTempoEvents)
+            effectiveDuration = tempoMap!.totalSeconds(forBeats: timeline.totalBeats ?? 32)
+            currentBeat = tempoMap!.beat(forSeconds: currentTime)
+        } else {
+            tempoMap = nil
+            effectiveDuration = timeline.totalDuration
+        }
+
+        previousTime = currentTime
         startOffset = currentTime
         startWallTime = CACurrentMediaTime()
         isPlaying = true
+
+        // Setup metronome if enabled in beat mode
+        if timeline.effectiveMode == .beats && timeline.metronomeEnabled == true {
+            metronome.setup()
+        }
 
         // Start audio if the timeline has one
         if let fileId = timeline.audioFileId {
@@ -67,16 +90,23 @@ class TimelineEngine: ObservableObject {
         connectionSub = nil
         bleManager?.stopEffect()
         activeEffectStates.removeAll()
+        metronome.stop()
+        tempoMap = nil
     }
 
     func seek(to time: Double) {
-        let clamped = max(0, min(time, timeline?.totalDuration ?? 30))
+        let maxTime = effectiveDuration > 0 ? effectiveDuration : (timeline?.totalDuration ?? 30)
+        let clamped = max(0, min(time, maxTime))
         currentTime = clamped
+        previousTime = clamped
         audioPlayer?.currentTime = clamped
+        if let map = tempoMap {
+            currentBeat = map.beat(forSeconds: clamped)
+        }
+        metronome.reset()
         if isPlaying {
             startOffset = clamped
             startWallTime = CACurrentMediaTime()
-            // Re-evaluate which blocks have already been fired
             rebuildFiredSets(upTo: clamped)
         }
     }
@@ -86,33 +116,46 @@ class TimelineEngine: ObservableObject {
     @objc private func tick() {
         guard let tl = timeline else { return }
 
+        let prevTime = currentTime
         let elapsed = CACurrentMediaTime() - startWallTime
         currentTime = startOffset + elapsed
 
-        if currentTime >= tl.totalDuration {
-            currentTime = tl.totalDuration
+        let duration = effectiveDuration > 0 ? effectiveDuration : tl.totalDuration
+        if currentTime >= duration {
+            currentTime = duration
             stop()
             currentTime = 0
+            currentBeat = 0
             return
         }
 
+        // Update beat position and tick metronome
+        if let map = tempoMap {
+            currentBeat = map.beat(forSeconds: currentTime)
+            if tl.metronomeEnabled == true {
+                metronome.tick(previousTime: prevTime, currentTime: currentTime, tempoMap: map)
+            }
+        }
+        previousTime = currentTime
+
         // Check for blocks to fire
+        let isBeatMode = tl.effectiveMode == .beats
         var blocksToFire: [(TimelineTrack, TimelineBlock)] = []
 
         for track in tl.tracks {
             for block in track.blocks {
-                // Fire block when playhead crosses its start time
-                if block.startTime <= currentTime && !firedBlockIds.contains(block.id) {
+                // In beat mode, block positions are in beats — convert to seconds
+                let blockStartSec = isBeatMode ? tempoMap!.seconds(forBeat: block.startTime) : block.startTime
+                let blockEndSec = isBeatMode ? tempoMap!.seconds(forBeat: block.startTime + block.duration) : (block.startTime + block.duration)
+
+                if blockStartSec <= currentTime && !firedBlockIds.contains(block.id) {
                     firedBlockIds.insert(block.id)
                     blocksToFire.append((track, block))
                 }
 
-                // End block when playhead crosses startTime + duration (if duration > 0)
                 if block.duration > 0 {
-                    let endTime = block.startTime + block.duration
-                    if endTime <= currentTime && !endedBlockIds.contains(block.id) {
+                    if blockEndSec <= currentTime && !endedBlockIds.contains(block.id) {
                         endedBlockIds.insert(block.id)
-                        // Dim this light to 0%
                         dimLight(track: track)
                     }
                 }
@@ -325,14 +368,17 @@ class TimelineEngine: ObservableObject {
 
     private func rebuildFiredSets(upTo time: Double) {
         guard let tl = timeline else { return }
+        let isBeatMode = tl.effectiveMode == .beats
         firedBlockIds.removeAll()
         endedBlockIds.removeAll()
         for track in tl.tracks {
             for block in track.blocks {
-                if block.startTime <= time {
+                let startSec = isBeatMode ? tempoMap?.seconds(forBeat: block.startTime) ?? block.startTime : block.startTime
+                let endSec = isBeatMode ? tempoMap?.seconds(forBeat: block.startTime + block.duration) ?? (block.startTime + block.duration) : (block.startTime + block.duration)
+                if startSec <= time {
                     firedBlockIds.insert(block.id)
                 }
-                if block.duration > 0 && block.startTime + block.duration <= time {
+                if block.duration > 0 && endSec <= time {
                     endedBlockIds.insert(block.id)
                 }
             }
