@@ -334,12 +334,18 @@ class BLEManager: NSObject, ObservableObject {
         currentSaturation = Int(lightState.saturation)
     }
 
+    private var lastSentProtocolIntensity: Int = -1
+
     func setIntensity(_ percent: Double) {
         currentIntensity = Int(percent)
         currentMode = "cct"
         guard let peripheral = connectedPeripheral else { return }
 
         let protocolIntensity = Int(round(percent * 10))
+
+        // Skip duplicate sends — avoids flooding the light's BLE proxy
+        if protocolIntensity == lastSentProtocolIntensity { return }
+        lastSentProtocolIntensity = protocolIntensity
         log("setIntensity(\(percent)%) protocolValue=\(protocolIntensity) cct=\(currentCCT)K target=0x\(String(format: "%04X", targetUnicastAddress))")
 
         // Sidus opcode 0x26 + CCTProtocol — controls intensity via CCT mode
