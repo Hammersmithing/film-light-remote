@@ -228,12 +228,17 @@ struct Timeline: Identifiable, Codable {
     var name: String
     var tracks: [TimelineTrack]
     var totalDuration: Double
+    var audioFileName: String?
+    var audioFileId: String?
 
-    init(id: UUID = UUID(), name: String = "New Timeline", tracks: [TimelineTrack] = [], totalDuration: Double = 30) {
+    init(id: UUID = UUID(), name: String = "New Timeline", tracks: [TimelineTrack] = [], totalDuration: Double = 30,
+         audioFileName: String? = nil, audioFileId: String? = nil) {
         self.id = id
         self.name = name
         self.tracks = tracks
         self.totalDuration = totalDuration
+        self.audioFileName = audioFileName
+        self.audioFileId = audioFileId
     }
 }
 

@@ -1,4 +1,6 @@
 import SwiftUI
+import UniformTypeIdentifiers
+import AVFoundation
 
 /// Visual block-timeline editor and player for a single Timeline.
 struct TimelineView: View {
@@ -18,6 +20,7 @@ struct TimelineView: View {
     @State private var durationText = ""
     @State private var showDurationWarning = false
     @State private var pendingDuration: Double = 0
+    @State private var showAudioPicker = false
 
     // Dragging
     @State private var draggingBlockId: UUID?
@@ -27,6 +30,9 @@ struct TimelineView: View {
     // Resizing
     @State private var resizingBlockId: UUID?
     @State private var resizingTrackId: UUID?
+
+    // Pinch zoom
+    @State private var pinchBasePts: CGFloat?
 
     private let trackLabelWidth: CGFloat = 70
     private let trackHeight: CGFloat = 50
@@ -45,6 +51,11 @@ struct TimelineView: View {
                 Menu {
                     Button { showLightPicker = true } label: {
                         Label("Add Light", systemImage: "plus")
+                    }
+                    if timeline.audioFileId == nil {
+                        Button { showAudioPicker = true } label: {
+                            Label("Add Song", systemImage: "music.note")
+                        }
                     }
                     Button { showDurationEditor = true } label: {
                         Label("Set Duration", systemImage: "clock")
@@ -121,6 +132,11 @@ struct TimelineView: View {
             let count = blocksOutsideDuration(pendingDuration)
             Text("\(count) block\(count == 1 ? "" : "s") will be deleted because \(count == 1 ? "it extends" : "they extend") past the new duration.")
         }
+        .fileImporter(isPresented: $showAudioPicker, allowedContentTypes: [.audio]) { result in
+            if case .success(let url) = result {
+                importAudioFile(from: url)
+            }
+        }
         .onAppear {
             engine.bleManager = bleManager
             durationText = String(Int(timeline.totalDuration))
@@ -149,6 +165,15 @@ struct TimelineView: View {
                             timeRuler(width: canvasWidth)
                         }
 
+                        // Audio lane
+                        if timeline.audioFileName != nil {
+                            HStack(spacing: 0) {
+                                audioLaneLabel
+                                audioLaneBar(canvasWidth: canvasWidth)
+                            }
+                            Divider()
+                        }
+
                         // Tracks
                         ForEach(Array(timeline.tracks.enumerated()), id: \.element.id) { idx, track in
                             HStack(spacing: 0) {
@@ -168,15 +193,19 @@ struct TimelineView: View {
             .simultaneousGesture(
                 MagnificationGesture()
                     .onChanged { scale in
-                        let newPts = max(15, min(200, ptsPerSecond * scale))
-                        ptsPerSecond = newPts
+                        if pinchBasePts == nil { pinchBasePts = ptsPerSecond }
+                        ptsPerSecond = max(10, min(200, pinchBasePts! * scale))
+                    }
+                    .onEnded { _ in
+                        pinchBasePts = nil
                     }
             )
         }
     }
 
     private var totalCanvasHeight: CGFloat {
-        rulerHeight + CGFloat(timeline.tracks.count) * (trackHeight + 1)
+        let audioLane: CGFloat = timeline.audioFileName != nil ? (trackHeight + 1) : 0
+        return rulerHeight + audioLane + CGFloat(timeline.tracks.count) * (trackHeight + 1)
     }
 
     // MARK: - Time Ruler
@@ -448,6 +477,79 @@ struct TimelineView: View {
         guard let tIdx = timeline.tracks.firstIndex(where: { $0.id == trackId }),
               let bIdx = timeline.tracks[tIdx].blocks.firstIndex(where: { $0.id == blockId }) else { return }
         timeline.tracks[tIdx].blocks[bIdx].state = newState
+        save()
+    }
+
+    // MARK: - Audio Lane
+
+    private var audioLaneLabel: some View {
+        Text("Song")
+            .font(.caption2)
+            .fontWeight(.medium)
+            .frame(width: trackLabelWidth, height: trackHeight)
+            .padding(.horizontal, 4)
+            .background(Color(.systemGray6))
+            .contextMenu {
+                Button(role: .destructive) {
+                    removeAudio()
+                } label: {
+                    Label("Remove Song", systemImage: "trash")
+                }
+            }
+    }
+
+    private func audioLaneBar(canvasWidth: CGFloat) -> some View {
+        ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color.teal.opacity(0.6))
+                .frame(width: canvasWidth, height: trackHeight - 6)
+            Text(timeline.audioFileName ?? "")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.white)
+                .lineLimit(1)
+                .padding(.horizontal, 8)
+        }
+        .frame(width: canvasWidth, height: trackHeight)
+        .contextMenu {
+            Button(role: .destructive) {
+                removeAudio()
+            } label: {
+                Label("Remove Song", systemImage: "trash")
+            }
+        }
+    }
+
+    private func importAudioFile(from url: URL) {
+        guard url.startAccessingSecurityScopedResource() else { return }
+        defer { url.stopAccessingSecurityScopedResource() }
+
+        let fileId = UUID().uuidString + "-" + url.lastPathComponent
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let dest = docs.appendingPathComponent(fileId)
+
+        do {
+            try FileManager.default.copyItem(at: url, to: dest)
+            timeline.audioFileName = url.lastPathComponent
+            timeline.audioFileId = fileId
+
+            // Extend timeline to at least the audio duration
+            if let player = try? AVAudioPlayer(contentsOf: dest), player.duration > timeline.totalDuration {
+                timeline.totalDuration = ceil(player.duration)
+            }
+
+            save()
+        } catch {
+            print("Failed to copy audio file: \(error)")
+        }
+    }
+
+    private func removeAudio() {
+        if let fileId = timeline.audioFileId {
+            let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            try? FileManager.default.removeItem(at: docs.appendingPathComponent(fileId))
+        }
+        timeline.audioFileName = nil
+        timeline.audioFileId = nil
         save()
     }
 

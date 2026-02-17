@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import QuartzCore
+import AVFoundation
 
 /// Plays back a Timeline — sweeps a playhead and fires BLE commands when blocks are reached.
 class TimelineEngine: ObservableObject {
@@ -17,6 +18,7 @@ class TimelineEngine: ObservableObject {
     private var endedBlockIds: Set<UUID> = []
 
     private var connectionSub: AnyCancellable?
+    private var audioPlayer: AVAudioPlayer?
 
     /// LightState instances kept alive for software effect engines.
     private var activeEffectStates: [LightState] = []
@@ -33,6 +35,23 @@ class TimelineEngine: ObservableObject {
         startWallTime = CACurrentMediaTime()
         isPlaying = true
 
+        // Start audio if the timeline has one
+        if let fileId = timeline.audioFileId {
+            let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            let audioURL = docs.appendingPathComponent(fileId)
+            do {
+                try AVAudioSession.sharedInstance().setCategory(.playback)
+                try AVAudioSession.sharedInstance().setActive(true)
+                let player = try AVAudioPlayer(contentsOf: audioURL)
+                player.prepareToPlay()
+                player.currentTime = currentTime
+                player.play()
+                audioPlayer = player
+            } catch {
+                print("Audio playback failed: \(error)")
+            }
+        }
+
         let link = CADisplayLink(target: self, selector: #selector(tick))
         link.add(to: .main, forMode: .common)
         displayLink = link
@@ -42,6 +61,8 @@ class TimelineEngine: ObservableObject {
         displayLink?.invalidate()
         displayLink = nil
         isPlaying = false
+        audioPlayer?.stop()
+        audioPlayer = nil
         connectionSub?.cancel()
         connectionSub = nil
         bleManager?.stopEffect()
@@ -51,6 +72,7 @@ class TimelineEngine: ObservableObject {
     func seek(to time: Double) {
         let clamped = max(0, min(time, timeline?.totalDuration ?? 30))
         currentTime = clamped
+        audioPlayer?.currentTime = clamped
         if isPlaying {
             startOffset = clamped
             startWallTime = CACurrentMediaTime()
