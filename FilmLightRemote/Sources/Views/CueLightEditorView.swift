@@ -45,6 +45,8 @@ struct CueLightEditorView: View {
             .padding()
             .background(Color(.systemGray6))
 
+            SlotBar(lightState: lightState, lightId: entry.lightId)
+
             // Full LightControlView — sends live BLE so the user sees changes
             LightControlView(
                 lightState: lightState,

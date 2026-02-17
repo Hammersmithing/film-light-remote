@@ -14,7 +14,10 @@ struct LightSessionView: View {
             Group {
                 switch bleManager.connectionState {
                 case .ready, .connected:
-                    LightControlView(lightState: lightState, cctRange: Self.cctRange(for: savedLight.name), intensityStep: Self.intensityStep(for: savedLight.name))
+                    VStack(spacing: 0) {
+                        SlotBar(lightState: lightState, lightId: savedLight.id)
+                        LightControlView(lightState: lightState, cctRange: Self.cctRange(for: savedLight.name), intensityStep: Self.intensityStep(for: savedLight.name))
+                    }
                 case .failed(let msg):
                     failedView(message: msg)
                 default:

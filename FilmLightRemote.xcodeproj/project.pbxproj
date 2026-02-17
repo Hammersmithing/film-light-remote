@@ -39,6 +39,7 @@
 		8B9C0D1E2F3A4B5C6D7E8F9A /* TimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8C9D0E1F2A3B4C5D6E7F8A9 /* TimelineView.swift */; };
 		9C0D1E2F3A4B5C6D7E8F9A0B /* MetronomeEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8D9E0F1A2B3C4D5E6F7A8B9 /* MetronomeEngine.swift */; };
 		0D1E2F3A4B5C6D7E8F9A0B1C /* TempoMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9E0F1A2B3C4D5E6F7A8B9CA /* TempoMap.swift */; };
+		AA1B2C3D4E5F6A7B8C9D0E1F /* SlotBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2C3D4E5F6A7B8C9D0E1F2A /* SlotBarView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -74,6 +75,7 @@
 		C8D9E0F1A2B3C4D5E6F7A8B9 /* MetronomeEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetronomeEngine.swift; sourceTree = "<group>"; };
 		D9E0F1A2B3C4D5E6F7A8B9CA /* TempoMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TempoMap.swift; sourceTree = "<group>"; };
 		B8C9D0E1F2A3B4C5D6E7F8A9 /* TimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineView.swift; sourceTree = "<group>"; };
+		BB2C3D4E5F6A7B8C9D0E1F2A /* SlotBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlotBarView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -111,6 +113,7 @@
 				DE57E401E0866863DC5B1146 /* MyLightsView.swift */,
 				D61846E9A4C95FB19D8F15C6 /* ProvisioningView.swift */,
 				7516003A19D055B376461731 /* ScannerView.swift */,
+				BB2C3D4E5F6A7B8C9D0E1F2A /* SlotBarView.swift */,
 				B8C9D0E1F2A3B4C5D6E7F8A9 /* TimelineView.swift */,
 			);
 			path = Views;
@@ -275,6 +278,7 @@
 				906941AABFDCB09F3F60EE54 /* SidusMeshConfig.swift in Sources */,
 				4CEE24AC461D9679FB4DF680 /* SidusMeshManager.swift in Sources */,
 				9F4E8D7B81AF8C471777253E /* SidusProtocols.swift in Sources */,
+				AA1B2C3D4E5F6A7B8C9D0E1F /* SlotBarView.swift in Sources */,
 				0D1E2F3A4B5C6D7E8F9A0B1C /* TempoMap.swift in Sources */,
 				7A8B9C0D1E2F3A4B5C6D7E8F /* TimelineEngine.swift in Sources */,
 				8B9C0D1E2F3A4B5C6D7E8F9A /* TimelineView.swift in Sources */,
