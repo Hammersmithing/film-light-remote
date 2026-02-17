@@ -18,6 +18,7 @@ class KeyStorage {
     private let savedLightsKey = "mesh.savedLights"
     private let cueListsKey = "cues.cueLists"
     private let timelinesKey = "cues.timelines"
+    private let lightGroupsKey = "groups.lightGroups"
 
     private let defaults = UserDefaults.standard
 
@@ -306,6 +307,40 @@ class KeyStorage {
         timelines = list
     }
 
+    // MARK: - Light Groups
+
+    var lightGroups: [LightGroup] {
+        get {
+            guard let data = defaults.data(forKey: lightGroupsKey) else { return [] }
+            return (try? JSONDecoder().decode([LightGroup].self, from: data)) ?? []
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue) {
+                defaults.set(data, forKey: lightGroupsKey)
+            }
+        }
+    }
+
+    func addLightGroup(_ group: LightGroup) {
+        var groups = lightGroups
+        groups.append(group)
+        lightGroups = groups
+    }
+
+    func updateLightGroup(_ group: LightGroup) {
+        var groups = lightGroups
+        if let idx = groups.firstIndex(where: { $0.id == group.id }) {
+            groups[idx] = group
+            lightGroups = groups
+        }
+    }
+
+    func removeLightGroup(_ group: LightGroup) {
+        var groups = lightGroups
+        groups.removeAll { $0.id == group.id }
+        lightGroups = groups
+    }
+
     // MARK: - Reset
 
     /// Reset all stored keys (for testing/debugging)
@@ -318,6 +353,7 @@ class KeyStorage {
         defaults.removeObject(forKey: savedLightsKey)
         defaults.removeObject(forKey: cueListsKey)
         defaults.removeObject(forKey: timelinesKey)
+        defaults.removeObject(forKey: lightGroupsKey)
         print("KeyStorage: Reset all keys")
 
         // Regenerate base keys

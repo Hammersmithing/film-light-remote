@@ -40,6 +40,8 @@
 		9C0D1E2F3A4B5C6D7E8F9A0B /* MetronomeEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8D9E0F1A2B3C4D5E6F7A8B9 /* MetronomeEngine.swift */; };
 		0D1E2F3A4B5C6D7E8F9A0B1C /* TempoMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9E0F1A2B3C4D5E6F7A8B9CA /* TempoMap.swift */; };
 		AA1B2C3D4E5F6A7B8C9D0E1F /* SlotBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2C3D4E5F6A7B8C9D0E1F2A /* SlotBarView.swift */; };
+		CC1A2B3C4D5E6F7A8B9C0D1E /* GroupsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD2B3C4D5E6F7A8B9C0D1E2F /* GroupsView.swift */; };
+		EE3C4D5E6F7A8B9C0D1E2F3A /* GroupSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF4D5E6F7A8B9C0D1E2F3A4B /* GroupSessionView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -76,6 +78,8 @@
 		D9E0F1A2B3C4D5E6F7A8B9CA /* TempoMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TempoMap.swift; sourceTree = "<group>"; };
 		B8C9D0E1F2A3B4C5D6E7F8A9 /* TimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineView.swift; sourceTree = "<group>"; };
 		BB2C3D4E5F6A7B8C9D0E1F2A /* SlotBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlotBarView.swift; sourceTree = "<group>"; };
+		DD2B3C4D5E6F7A8B9C0D1E2F /* GroupsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupsView.swift; sourceTree = "<group>"; };
+		FF4D5E6F7A8B9C0D1E2F3A4B /* GroupSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupSessionView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -108,6 +112,8 @@
 				D4E5F6A7B8C9D0E1F2A3B4C5 /* CueListDetailView.swift */,
 				C3D4E5F6A7B8C9D0E1F2A3B4 /* CuesView.swift */,
 				5E0AD22691AC13AA834B0487 /* DebugLogView.swift */,
+				FF4D5E6F7A8B9C0D1E2F3A4B /* GroupSessionView.swift */,
+				DD2B3C4D5E6F7A8B9C0D1E2F /* GroupsView.swift */,
 				9AAE3FBEA794C6D7DA1D597D /* LightControlView.swift */,
 				E6813B950AB3CC3D52353986 /* LightSessionView.swift */,
 				DE57E401E0866863DC5B1146 /* MyLightsView.swift */,
@@ -261,6 +267,8 @@
 				C137F62B9A5A9DD8C37EA7C0 /* ContentView.swift in Sources */,
 				237646B1C10C3EAD06E7E978 /* DebugLogView.swift in Sources */,
 				AD22780D400186BC14DF823B /* FilmLightRemoteApp.swift in Sources */,
+				EE3C4D5E6F7A8B9C0D1E2F3A /* GroupSessionView.swift in Sources */,
+				CC1A2B3C4D5E6F7A8B9C0D1E /* GroupsView.swift in Sources */,
 				D7C6F37B47EF51F882855AA0 /* KeyStorage.swift in Sources */,
 				0A9282FEA8918D629FAEED8D /* LightControlView.swift in Sources */,
 				EF1FBB863574D0C9C753A024 /* LightSessionView.swift in Sources */,
