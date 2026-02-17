@@ -88,6 +88,8 @@ class CueEngine: ObservableObject {
                 isRunning = false
             }
         } else {
+            // Reset to top so the cue list is ready to fire again
+            currentCueIndex = 0
             isRunning = false
         }
     }
@@ -335,8 +337,15 @@ class CueEngine: ObservableObject {
         }
     }
 
-    // MARK: - Reset
+    // MARK: - Stop / Reset
 
+    /// Stop the current cue but keep the pointer where it is.
+    func stop() {
+        cancelPending()
+        isRunning = false
+    }
+
+    /// Stop and reset to the top of the cue list.
     func reset() {
         cancelPending()
         currentCueIndex = 0

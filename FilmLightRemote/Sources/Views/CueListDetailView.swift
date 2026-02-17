@@ -181,21 +181,53 @@ struct CueListDetailView: View {
         .listStyle(.plain)
     }
 
-    // MARK: - GO Button
+    // MARK: - GO / Stop Buttons
 
     private var goButton: some View {
-        Button {
-            fireCue()
-        } label: {
-            Text("GO")
-                .font(.system(size: 36, weight: .black, design: .rounded))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 20)
-                .background(isConnected ? Color.green : Color.gray)
-                .foregroundColor(.white)
-                .cornerRadius(16)
+        HStack(spacing: 12) {
+            // Stop / Reset button — changes based on state
+            if engine.isRunning {
+                Button {
+                    engine.stop()
+                } label: {
+                    Image(systemName: "stop.fill")
+                        .font(.system(size: 24, weight: .bold))
+                        .frame(width: 64)
+                        .padding(.vertical, 20)
+                        .background(Color.red)
+                        .foregroundColor(.white)
+                        .cornerRadius(16)
+                }
+            } else if engine.currentCueIndex > 0 {
+                Button {
+                    engine.reset()
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 24, weight: .bold))
+                        .frame(width: 64)
+                        .padding(.vertical, 20)
+                        .background(Color.orange)
+                        .foregroundColor(.white)
+                        .cornerRadius(16)
+                }
+            }
+
+            // GO button
+            Button {
+                fireCue()
+            } label: {
+                Text("GO")
+                    .font(.system(size: 36, weight: .black, design: .rounded))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 20)
+                    .background(isConnected ? Color.green : Color.gray)
+                    .foregroundColor(.white)
+                    .cornerRadius(16)
+            }
+            .disabled(cueList.cues.isEmpty || !isConnected)
         }
-        .disabled(cueList.cues.isEmpty || !isConnected)
+        .animation(.easeInOut(duration: 0.2), value: engine.isRunning)
+        .animation(.easeInOut(duration: 0.2), value: engine.currentCueIndex)
         .padding()
     }
 
