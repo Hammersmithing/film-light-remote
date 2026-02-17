@@ -17,6 +17,7 @@ class KeyStorage {
     private let nextUnicastAddressKey = "mesh.nextUnicastAddress"
     private let savedLightsKey = "mesh.savedLights"
     private let cueListsKey = "cues.cueLists"
+    private let timelinesKey = "cues.timelines"
 
     private let defaults = UserDefaults.standard
 
@@ -271,6 +272,40 @@ class KeyStorage {
         cueLists = lists
     }
 
+    // MARK: - Timelines
+
+    var timelines: [Timeline] {
+        get {
+            guard let data = defaults.data(forKey: timelinesKey) else { return [] }
+            return (try? JSONDecoder().decode([Timeline].self, from: data)) ?? []
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue) {
+                defaults.set(data, forKey: timelinesKey)
+            }
+        }
+    }
+
+    func addTimeline(_ timeline: Timeline) {
+        var list = timelines
+        list.append(timeline)
+        timelines = list
+    }
+
+    func updateTimeline(_ timeline: Timeline) {
+        var list = timelines
+        if let idx = list.firstIndex(where: { $0.id == timeline.id }) {
+            list[idx] = timeline
+            timelines = list
+        }
+    }
+
+    func removeTimeline(_ timeline: Timeline) {
+        var list = timelines
+        list.removeAll { $0.id == timeline.id }
+        timelines = list
+    }
+
     // MARK: - Reset
 
     /// Reset all stored keys (for testing/debugging)
@@ -282,6 +317,7 @@ class KeyStorage {
         defaults.removeObject(forKey: nextUnicastAddressKey)
         defaults.removeObject(forKey: savedLightsKey)
         defaults.removeObject(forKey: cueListsKey)
+        defaults.removeObject(forKey: timelinesKey)
         print("KeyStorage: Reset all keys")
 
         // Regenerate base keys

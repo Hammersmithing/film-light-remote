@@ -207,4 +207,62 @@ struct CueState: Codable {
             return effect?.name ?? "FX"
         }
     }
+
+    var shortSummary: String {
+        let m = LightMode(rawValue: mode) ?? .cct
+        switch m {
+        case .cct:
+            return "\(Int(intensity))% \(Int(cctKelvin))K"
+        case .hsi:
+            return "H\(Int(hue)) \(Int(intensity))%"
+        case .effects:
+            return LightEffect(rawValue: effectId)?.name ?? "FX"
+        }
+    }
+}
+
+// MARK: - Timeline
+
+struct Timeline: Identifiable, Codable {
+    let id: UUID
+    var name: String
+    var tracks: [TimelineTrack]
+    var totalDuration: Double
+
+    init(id: UUID = UUID(), name: String = "New Timeline", tracks: [TimelineTrack] = [], totalDuration: Double = 30) {
+        self.id = id
+        self.name = name
+        self.tracks = tracks
+        self.totalDuration = totalDuration
+    }
+}
+
+struct TimelineTrack: Identifiable, Codable {
+    let id: UUID
+    var lightId: UUID
+    var lightName: String
+    var unicastAddress: UInt16
+    var blocks: [TimelineBlock]
+
+    init(id: UUID = UUID(), lightId: UUID, lightName: String, unicastAddress: UInt16, blocks: [TimelineBlock] = []) {
+        self.id = id
+        self.lightId = lightId
+        self.lightName = lightName
+        self.unicastAddress = unicastAddress
+        self.blocks = blocks
+    }
+}
+
+struct TimelineBlock: Identifiable, Codable {
+    let id: UUID
+    var startTime: Double
+    var duration: Double
+    var state: CueState
+
+    init(id: UUID = UUID(), startTime: Double = 0, duration: Double = 2, state: CueState = CueState()) {
+        self.id = id
+        self.startTime = startTime
+        self.duration = duration
+        self.state = state
+    }
 }
