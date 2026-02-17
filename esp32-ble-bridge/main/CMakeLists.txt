@@ -1,0 +1,23 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "wifi.c"
+        "ws_server.c"
+        "mesh_crypto.c"
+        "sidus_protocol.c"
+        "ble_mesh.c"
+        "effect_engine.c"
+        "light_registry.c"
+    INCLUDE_DIRS "."
+    REQUIRES
+        nvs_flash
+        esp_wifi
+        esp_netif
+        esp_http_server
+        esp_event
+        mdns
+        bt
+        mbedtls
+        esp_timer
+        json
+)

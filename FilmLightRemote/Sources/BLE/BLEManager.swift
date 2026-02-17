@@ -66,6 +66,9 @@ struct DiscoveredLight: Identifiable, Equatable {
 
 // MARK: - BLE Manager
 class BLEManager: NSObject, ObservableObject {
+    /// Bridge manager for WiFi-based ESP32 bridge. When connected, commands route through bridge.
+    let bridgeManager = BridgeManager.shared
+
     // Published state
     @Published var connectionState: BLEConnectionState = .disconnected
     @Published var discoveredLights: [DiscoveredLight] = []
@@ -106,6 +109,17 @@ class BLEManager: NSObject, ObservableObject {
     private var sidusControl: CBCharacteristic? // 2B12 - Direct Sidus control
     private var provisioningDataIn: CBCharacteristic?  // 2ADB
     private var provisioningDataOut: CBCharacteristic? // 2ADC
+
+    // MARK: - Multi-Peripheral Connection Registry
+
+    /// A snapshot of a peripheral + its mesh proxy characteristic, for concurrent writes.
+    struct PeripheralConnection {
+        let peripheral: CBPeripheral
+        let meshProxyIn: CBCharacteristic
+    }
+
+    /// All active peripheral connections — keyed by peripheral identifier.
+    private(set) var peripheralConnections: [UUID: PeripheralConnection] = [:]
 
     /// Whether the connected device has provisioning service available
     var isProvisioningAvailable: Bool {
@@ -188,7 +202,8 @@ class BLEManager: NSObject, ObservableObject {
 
     /// Reconnect to a previously known peripheral by its CoreBluetooth identifier.
     /// Uses retrievePeripherals first; falls back to scanning if not cached.
-    func connectToKnownPeripheral(identifier: UUID) {
+    /// When `keepExisting` is true, existing connections are preserved (for multi-light cues).
+    func connectToKnownPeripheral(identifier: UUID, keepExisting: Bool = false) {
         guard centralManager.state == .poweredOn else {
             log("Cannot reconnect - Bluetooth not powered on")
             connectionState = .failed("Bluetooth not available")
@@ -203,9 +218,26 @@ class BLEManager: NSObject, ObservableObject {
             return
         }
 
-        // If connecting to a different peripheral while engine is running, stop engine
-        if hasActiveEngine, connectedPeripheral?.identifier != identifier {
+        // Also check the multi-peripheral registry
+        if let registered = peripheralConnections[identifier] {
+            log("Already in peripheral registry \(registered.peripheral.name ?? identifier.uuidString) — promoting to primary")
+            connectedPeripheral = registered.peripheral
+            meshProxyIn = registered.meshProxyIn
+            connectionState = .ready
+            return
+        }
+
+        // If connecting to a different peripheral in single-light mode, clean up the old one
+        // (keepExisting = true preserves connections for multi-light cues)
+        if !keepExisting, connectedPeripheral?.identifier != identifier {
             stopFaultyBulb()
+            stopPaparazzi()
+            stopSoftwareEffect()
+            // Explicitly disconnect the old peripheral and remove from registry
+            if let old = connectedPeripheral {
+                peripheralConnections.removeValue(forKey: old.identifier)
+                centralManager.cancelPeripheralConnection(old)
+            }
         }
 
         let peripherals = centralManager.retrievePeripherals(withIdentifiers: [identifier])
@@ -360,12 +392,32 @@ class BLEManager: NSObject, ObservableObject {
         }
     }
 
+    /// Write a mesh PDU through a specific peripheral connection, or fall back to connectedPeripheral.
+    func writeMesh(accessMessage: [UInt8], dst: UInt16, viaPeripheral peripheralId: UUID? = nil) {
+        let conn: PeripheralConnection?
+        if let id = peripheralId, let registered = peripheralConnections[id] {
+            conn = registered
+        } else if let cp = connectedPeripheral, let mp = meshProxyIn {
+            conn = PeripheralConnection(peripheral: cp, meshProxyIn: mp)
+        } else {
+            conn = nil
+        }
+        guard let c = conn else { return }
+        if let meshPDU = MeshCrypto.createStandardMeshPDU(accessMessage: accessMessage, dst: dst) {
+            c.peripheral.writeValue(meshPDU, for: c.meshProxyIn, type: .withoutResponse)
+        }
+    }
+
     /// Set CCT with explicit values and sleepMode control for instant on/off transitions.
     /// sleepMode=0 puts the light to sleep (instant off), sleepMode=1 wakes it (on).
     /// Pass targetAddress to override the default targetUnicastAddress (used by background engines).
-    func setCCTWithSleep(intensity percent: Double, cctKelvin: Int, sleepMode: Int, targetAddress: UInt16? = nil) {
-        guard let peripheral = connectedPeripheral else { return }
+    func setCCTWithSleep(intensity percent: Double, cctKelvin: Int, sleepMode: Int, targetAddress: UInt16? = nil, viaPeripheral: UUID? = nil) {
         let dst = targetAddress ?? targetUnicastAddress
+
+        if bridgeManager.isConnected {
+            bridgeManager.setCCT(unicast: dst, intensity: percent, cctKelvin: cctKelvin, sleepMode: sleepMode)
+            return
+        }
 
         let protocolIntensity = Int(round(percent * 10))
         let cmd = CCTProtocol(
@@ -381,21 +433,18 @@ class BLEManager: NSObject, ObservableObject {
         var accessMessage: [UInt8] = [0x26]
         accessMessage.append(contentsOf: payload)
 
-        if let char = meshProxyIn {
-            if let meshPDU = MeshCrypto.createStandardMeshPDU(
-                accessMessage: accessMessage,
-                dst: dst
-            ) {
-                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
-            }
-        }
+        writeMesh(accessMessage: accessMessage, dst: dst, viaPeripheral: viaPeripheral)
     }
 
     /// Set HSI with explicit values and sleepMode control for instant on/off transitions.
     /// Pass targetAddress to override the default targetUnicastAddress (used by background engines).
-    func setHSIWithSleep(intensity percent: Double, hue: Int, saturation: Int, cctKelvin: Int = 5600, sleepMode: Int, targetAddress: UInt16? = nil) {
-        guard let peripheral = connectedPeripheral else { return }
+    func setHSIWithSleep(intensity percent: Double, hue: Int, saturation: Int, cctKelvin: Int = 5600, sleepMode: Int, targetAddress: UInt16? = nil, viaPeripheral: UUID? = nil) {
         let dst = targetAddress ?? targetUnicastAddress
+
+        if bridgeManager.isConnected {
+            bridgeManager.setHSI(unicast: dst, intensity: percent, hue: hue, saturation: saturation, cctKelvin: cctKelvin, sleepMode: sleepMode)
+            return
+        }
 
         let cmd = HSIProtocol(
             intensity: Int(round(percent * 10)),
@@ -411,14 +460,7 @@ class BLEManager: NSObject, ObservableObject {
         var accessMessage: [UInt8] = [0x26]
         accessMessage.append(contentsOf: payload)
 
-        if let char = meshProxyIn {
-            if let meshPDU = MeshCrypto.createStandardMeshPDU(
-                accessMessage: accessMessage,
-                dst: dst
-            ) {
-                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
-            }
-        }
+        writeMesh(accessMessage: accessMessage, dst: dst, viaPeripheral: viaPeripheral)
     }
 
     /// Current CCT value for combined commands
@@ -527,10 +569,14 @@ class BLEManager: NSObject, ObservableObject {
         }
     }
 
-    func setEffect(effectType: Int, intensityPercent: Double, frq: Int, cctKelvin: Int = 5600, copCarColor: Int = 0, effectMode: Int = 0, hue: Int = 0, saturation: Int = 100, targetAddress: UInt16? = nil) {
+    func setEffect(effectType: Int, intensityPercent: Double, frq: Int, cctKelvin: Int = 5600, copCarColor: Int = 0, effectMode: Int = 0, hue: Int = 0, saturation: Int = 100, targetAddress: UInt16? = nil, viaPeripheral: UUID? = nil) {
         currentMode = "effects"
-        guard let peripheral = connectedPeripheral else { return }
         let dst = targetAddress ?? targetUnicastAddress
+
+        if bridgeManager.isConnected {
+            bridgeManager.setEffect(unicast: dst, effectType: effectType, intensity: intensityPercent, frq: frq, cctKelvin: cctKelvin, copCarColor: copCarColor, effectMode: effectMode, hue: hue, saturation: saturation)
+            return
+        }
 
         log("setEffect(type:\(effectType), intensity:\(intensityPercent)%, frq:\(frq), mode:\(effectMode)) target=0x\(String(format: "%04X", dst))")
 
@@ -543,40 +589,38 @@ class BLEManager: NSObject, ObservableObject {
         var accessMessage: [UInt8] = [0x26]
         accessMessage.append(contentsOf: payload)
 
-        if let char = meshProxyIn {
-            if let meshPDU = MeshCrypto.createStandardMeshPDU(
-                accessMessage: accessMessage,
-                dst: dst
-            ) {
-                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
-                log("  Sent effect type=\(effectType) to 0x\(String(format: "%04X", dst))")
-            }
-        }
+        writeMesh(accessMessage: accessMessage, dst: dst, viaPeripheral: viaPeripheral)
+        log("  Sent effect type=\(effectType) to 0x\(String(format: "%04X", dst))")
     }
 
     /// Send a dedicated SleepProtocol (commandType=12) for instant on/off — no color data to process.
-    func sendSleep(_ on: Bool, targetAddress: UInt16? = nil) {
-        guard let peripheral = connectedPeripheral else { return }
+    func sendSleep(_ on: Bool, targetAddress: UInt16? = nil, viaPeripheral: UUID? = nil) {
         let dst = targetAddress ?? targetUnicastAddress
+
+        if bridgeManager.isConnected {
+            bridgeManager.sendSleep(unicast: dst, on: on)
+            return
+        }
+
         let cmd = SleepProtocol(on: on)
         let payload = cmd.getSendData()
         var accessMessage: [UInt8] = [0x26]
         accessMessage.append(contentsOf: payload)
 
-        if let char = meshProxyIn {
-            if let meshPDU = MeshCrypto.createStandardMeshPDU(
-                accessMessage: accessMessage,
-                dst: dst
-            ) {
-                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
-            }
-        }
+        writeMesh(accessMessage: accessMessage, dst: dst, viaPeripheral: viaPeripheral)
     }
 
     func stopEffect() {
         stopFaultyBulb()
         stopPaparazzi()
         stopSoftwareEffect()
+
+        if bridgeManager.isConnected {
+            bridgeManager.stopEffect(unicast: targetUnicastAddress)
+            log("stopEffect() via bridge for 0x\(String(format: "%04X", targetUnicastAddress))")
+            return
+        }
+
         guard let peripheral = connectedPeripheral else { return }
 
         log("stopEffect() target=0x\(String(format: "%04X", targetUnicastAddress))")
@@ -597,6 +641,17 @@ class BLEManager: NSObject, ObservableObject {
         }
     }
 
+    /// Disconnect all peripherals except the primary `connectedPeripheral`.
+    /// Called when cue execution completes or is cancelled, to clean up extra connections.
+    func disconnectAllExtra() {
+        guard let primaryId = connectedPeripheral?.identifier else { return }
+        for (id, conn) in peripheralConnections where id != primaryId {
+            log("Disconnecting extra peripheral \(conn.peripheral.name ?? id.uuidString)")
+            centralManager.cancelPeripheralConnection(conn.peripheral)
+            // peripheralConnections entry removed in didDisconnect delegate
+        }
+    }
+
     // MARK: - Software Effect Engines
 
     private(set) var faultyBulbEngines: [FaultyBulbEngine] = []
@@ -612,17 +667,29 @@ class BLEManager: NSObject, ObservableObject {
     var hasActiveEngine: Bool { !faultyBulbEngines.isEmpty || !paparazziEngines.isEmpty || !softwareEffectEngines.isEmpty }
 
     /// Start a faulty bulb engine. Multiple can run concurrently on different lights.
-    func startFaultyBulb(lightState: LightState) {
+    func startFaultyBulb(lightState: LightState, peripheralIdentifier: UUID? = nil) {
+        if bridgeManager.isConnected {
+            let params = BridgeManager.effectParams(from: lightState, effect: .faultyBulb)
+            bridgeManager.startSoftwareEffect(unicast: targetUnicastAddress, engine: "faultyBulb", params: params)
+            log("Faulty bulb engine started on bridge for 0x\(String(format: "%04X", targetUnicastAddress))")
+            return
+        }
         // Stop any existing engine on this same light
         stopFaultyBulb(forAddress: targetUnicastAddress)
         let engine = FaultyBulbEngine()
         faultyBulbEngines.append(engine)
-        engine.start(bleManager: self, lightState: lightState, targetAddress: targetUnicastAddress)
+        engine.start(bleManager: self, lightState: lightState, targetAddress: targetUnicastAddress, peripheralIdentifier: peripheralIdentifier)
         log("Faulty bulb engine started for 0x\(String(format: "%04X", targetUnicastAddress))")
     }
 
     /// Stop faulty bulb engine for a specific light, or all if no address given.
     func stopFaultyBulb(forAddress address: UInt16? = nil) {
+        if bridgeManager.isConnected {
+            if let address = address {
+                bridgeManager.stopEffect(unicast: address)
+            }
+            // Local engines won't be running in bridge mode, but clean up just in case
+        }
         if let address = address {
             faultyBulbEngines.removeAll { engine in
                 if engine.targetAddress == address {
@@ -640,16 +707,27 @@ class BLEManager: NSObject, ObservableObject {
     }
 
     /// Start a paparazzi engine. Multiple can run concurrently on different lights.
-    func startPaparazzi(lightState: LightState) {
+    func startPaparazzi(lightState: LightState, peripheralIdentifier: UUID? = nil) {
+        if bridgeManager.isConnected {
+            let params = BridgeManager.effectParams(from: lightState, effect: .paparazzi)
+            bridgeManager.startSoftwareEffect(unicast: targetUnicastAddress, engine: "paparazzi", params: params)
+            log("Paparazzi engine started on bridge for 0x\(String(format: "%04X", targetUnicastAddress))")
+            return
+        }
         stopPaparazzi(forAddress: targetUnicastAddress)
         let engine = PaparazziEngine()
         paparazziEngines.append(engine)
-        engine.start(bleManager: self, lightState: lightState, targetAddress: targetUnicastAddress)
+        engine.start(bleManager: self, lightState: lightState, targetAddress: targetUnicastAddress, peripheralIdentifier: peripheralIdentifier)
         log("Paparazzi engine started for 0x\(String(format: "%04X", targetUnicastAddress))")
     }
 
     /// Stop paparazzi engine for a specific light, or all if no address given.
     func stopPaparazzi(forAddress address: UInt16? = nil) {
+        if bridgeManager.isConnected {
+            if let address = address {
+                bridgeManager.stopEffect(unicast: address)
+            }
+        }
         if let address = address {
             paparazziEngines.removeAll { engine in
                 if engine.targetAddress == address {
@@ -667,16 +745,28 @@ class BLEManager: NSObject, ObservableObject {
     }
 
     /// Start a software effect engine. Multiple can run concurrently on different lights.
-    func startSoftwareEffect(lightState: LightState) {
+    func startSoftwareEffect(lightState: LightState, peripheralIdentifier: UUID? = nil) {
+        if bridgeManager.isConnected {
+            let effect = lightState.selectedEffect
+            let params = BridgeManager.effectParams(from: lightState, effect: effect)
+            bridgeManager.startSoftwareEffect(unicast: targetUnicastAddress, engine: BridgeManager.engineName(for: effect), params: params)
+            log("Software effect engine started on bridge: \(effect) for 0x\(String(format: "%04X", targetUnicastAddress))")
+            return
+        }
         stopSoftwareEffect(forAddress: targetUnicastAddress)
         let engine = SoftwareEffectEngine()
         softwareEffectEngines.append(engine)
-        engine.start(bleManager: self, lightState: lightState, targetAddress: targetUnicastAddress)
+        engine.start(bleManager: self, lightState: lightState, targetAddress: targetUnicastAddress, peripheralIdentifier: peripheralIdentifier)
         log("Software effect engine started: \(lightState.selectedEffect) for 0x\(String(format: "%04X", targetUnicastAddress))")
     }
 
     /// Stop software effect engine for a specific light, or all if no address given.
     func stopSoftwareEffect(forAddress address: UInt16? = nil) {
+        if bridgeManager.isConnected {
+            if let address = address {
+                bridgeManager.stopEffect(unicast: address)
+            }
+        }
         if let address = address {
             softwareEffectEngines.removeAll { engine in
                 if engine.targetAddress == address {
@@ -1042,10 +1132,37 @@ extension BLEManager: CBCentralManagerDelegate {
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         log("Disconnected from \(peripheral.name ?? "Unknown")")
-        stopFaultyBulb()  // Engine can no longer send — stop it
-        stopPaparazzi()
-        stopSoftwareEffect()
-        cleanup()
+
+        // Remove from the multi-peripheral registry
+        peripheralConnections.removeValue(forKey: peripheral.identifier)
+
+        // Stop engines that were targeting this peripheral
+        faultyBulbEngines.removeAll { engine in
+            if engine.peripheralIdentifier == peripheral.identifier {
+                engine.stop()
+                return true
+            }
+            return false
+        }
+        paparazziEngines.removeAll { engine in
+            if engine.peripheralIdentifier == peripheral.identifier {
+                engine.stop()
+                return true
+            }
+            return false
+        }
+        softwareEffectEngines.removeAll { engine in
+            if engine.peripheralIdentifier == peripheral.identifier {
+                engine.stop()
+                return true
+            }
+            return false
+        }
+
+        // Only full cleanup if the disconnected peripheral was the primary one
+        if peripheral.identifier == connectedPeripheral?.identifier {
+            cleanup()
+        }
     }
 }
 
@@ -1135,6 +1252,11 @@ extension BLEManager: CBPeripheralDelegate {
                 meshProxyIn = characteristic
                 log("    >>> Found Mesh Proxy Data In (2ADD)! Properties: \(characteristic.properties.rawValue)")
                 // 2ADD may only support writeWithoutResponse
+                // Store in multi-peripheral registry
+                peripheralConnections[peripheral.identifier] = PeripheralConnection(
+                    peripheral: peripheral,
+                    meshProxyIn: characteristic
+                )
             }
 
             // Store 7FCB for alternative testing
@@ -1370,6 +1492,8 @@ class FaultyBulbEngine {
 
     // Stored parameters — engine is self-contained, does not depend on LightState
     private(set) var targetAddress: UInt16 = 0x0002
+    /// The peripheral this engine writes through (set at start time).
+    private(set) var peripheralIdentifier: UUID = UUID()
     private var colorMode: LightMode = .cct
     private var cctKelvin: Int = 5600
     private var hue: Int = 0
@@ -1385,10 +1509,11 @@ class FaultyBulbEngine {
     private var transitionValue: Double = 0.0
     private var frequencyValue: Double = 5.0
 
-    func start(bleManager: BLEManager, lightState: LightState, targetAddress: UInt16) {
+    func start(bleManager: BLEManager, lightState: LightState, targetAddress: UInt16, peripheralIdentifier: UUID? = nil) {
         stop()
         self.bleManager = bleManager
         self.targetAddress = targetAddress
+        self.peripheralIdentifier = peripheralIdentifier ?? bleManager.connectedPeripheral?.identifier ?? UUID()
         self.currentIntensity = lightState.intensity
         updateParams(from: lightState)
         fireEvent()
@@ -1444,14 +1569,16 @@ class FaultyBulbEngine {
                 saturation: saturation,
                 cctKelvin: adjustedCCT,
                 sleepMode: sleepMode,
-                targetAddress: targetAddress
+                targetAddress: targetAddress,
+                viaPeripheral: peripheralIdentifier
             )
         } else {
             mgr.setCCTWithSleep(
                 intensity: percent,
                 cctKelvin: adjustedCCT,
                 sleepMode: sleepMode,
-                targetAddress: targetAddress
+                targetAddress: targetAddress,
+                viaPeripheral: peripheralIdentifier
             )
         }
     }
@@ -1596,6 +1723,8 @@ class PaparazziEngine {
 
     // Stored parameters
     private(set) var targetAddress: UInt16 = 0x0002
+    /// The peripheral this engine writes through (set at start time).
+    private(set) var peripheralIdentifier: UUID = UUID()
     private var colorMode: LightMode = .hsi
     private var cctKelvin: Int = 5600
     private var hue: Int = 0
@@ -1604,10 +1733,11 @@ class PaparazziEngine {
     private var intensity: Double = 100.0
     private var frequency: Double = 8.0  // 0-15
 
-    func start(bleManager: BLEManager, lightState: LightState, targetAddress: UInt16) {
+    func start(bleManager: BLEManager, lightState: LightState, targetAddress: UInt16, peripheralIdentifier: UUID? = nil) {
         stop()
         self.bleManager = bleManager
         self.targetAddress = targetAddress
+        self.peripheralIdentifier = peripheralIdentifier ?? bleManager.connectedPeripheral?.identifier ?? UUID()
         updateParams(from: lightState)
         scheduleNextFlash()
     }
@@ -1692,14 +1822,16 @@ class PaparazziEngine {
                 saturation: saturation,
                 cctKelvin: hsiCCT,
                 sleepMode: sleepMode,
-                targetAddress: targetAddress
+                targetAddress: targetAddress,
+                viaPeripheral: peripheralIdentifier
             )
         } else {
             mgr.setCCTWithSleep(
                 intensity: intensity,
                 cctKelvin: cctKelvin,
                 sleepMode: sleepMode,
-                targetAddress: targetAddress
+                targetAddress: targetAddress,
+                viaPeripheral: peripheralIdentifier
             )
         }
     }
@@ -1714,6 +1846,8 @@ class SoftwareEffectEngine {
     private let queue = DispatchQueue(label: "com.filmlightremote.softwareeffect", qos: .userInitiated)
 
     private(set) var targetAddress: UInt16 = 0x0002
+    /// The peripheral this engine writes through (set at start time).
+    private(set) var peripheralIdentifier: UUID = UUID()
     private var effectType: LightEffect = .none
     private var colorMode: LightMode = .hsi
     private var cctKelvin: Int = 5600
@@ -1733,10 +1867,11 @@ class SoftwareEffectEngine {
     private var partyTransition: Double = 0.0
     private var partyHueBias: Double = 0.0
 
-    func start(bleManager: BLEManager, lightState: LightState, targetAddress: UInt16) {
+    func start(bleManager: BLEManager, lightState: LightState, targetAddress: UInt16, peripheralIdentifier: UUID? = nil) {
         stop()
         self.bleManager = bleManager
         self.targetAddress = targetAddress
+        self.peripheralIdentifier = peripheralIdentifier ?? bleManager.connectedPeripheral?.identifier ?? UUID()
         updateParams(from: lightState)
         currentIntensity = intensity
         phaseTime = 0
@@ -2076,14 +2211,16 @@ class SoftwareEffectEngine {
                 saturation: saturation,
                 cctKelvin: hsiCCT,
                 sleepMode: sleepMode,
-                targetAddress: targetAddress
+                targetAddress: targetAddress,
+                viaPeripheral: peripheralIdentifier
             )
         } else {
             mgr.setCCTWithSleep(
                 intensity: intensity,
                 cctKelvin: cctKelvin,
                 sleepMode: sleepMode,
-                targetAddress: targetAddress
+                targetAddress: targetAddress,
+                viaPeripheral: peripheralIdentifier
             )
         }
     }

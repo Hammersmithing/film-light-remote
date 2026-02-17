@@ -70,6 +70,7 @@ class CueEngine: ObservableObject {
     private func cueDidEnd() {
         // Stop software effect engines and dim lights to 0% for a clean break
         bleManager?.stopEffect()
+        bleManager?.disconnectAllExtra()
         activeEffectStates.removeAll()
         dimCueLights(allCues[currentCueIndex])
 
@@ -95,6 +96,15 @@ class CueEngine: ObservableObject {
     // MARK: - Snap (connect to each light and send)
 
     private func fireSnap(_ cue: Cue, bleManager: BLEManager) {
+        // When bridge is connected, send all commands immediately without sequential BLE connections
+        if bleManager.bridgeManager.isConnected {
+            for entry in cue.lightEntries {
+                bleManager.targetUnicastAddress = entry.unicastAddress
+                sendState(entry.state, to: entry.unicastAddress, bleManager: bleManager)
+            }
+            return
+        }
+
         // Build a queue of light entries to process sequentially
         var remaining = Array(cue.lightEntries)
         fireNextLight(&remaining, bleManager: bleManager)
@@ -116,18 +126,11 @@ class CueEngine: ObservableObject {
 
         bleManager.targetUnicastAddress = entry.unicastAddress
 
-        // Check if already connected to this light
-        if bleManager.connectedPeripheral?.identifier == saved.peripheralIdentifier,
-           bleManager.connectionState == .ready {
-            // Already connected — send immediately
-            sendState(entry.state, to: entry.unicastAddress, bleManager: bleManager)
-            var mutableRest = rest
-            fireNextLight(&mutableRest, bleManager: bleManager)
-            return
-        }
-
-        // Connect and wait for ready
-        bleManager.connectToKnownPeripheral(identifier: saved.peripheralIdentifier)
+        // Always go through connectToKnownPeripheral — it handles:
+        // - Already primary: sets .ready synchronously
+        // - In peripheral registry: promotes to primary, sets .ready synchronously
+        // - Fresh connection: sets .connecting, .ready fires later via delegate
+        bleManager.connectToKnownPeripheral(identifier: saved.peripheralIdentifier, keepExisting: true)
 
         connectionSub?.cancel()
         connectionSub = bleManager.$connectionState
@@ -135,7 +138,7 @@ class CueEngine: ObservableObject {
             .first()
             .sink { [weak self] _ in
                 self?.sendState(entry.state, to: entry.unicastAddress, bleManager: bleManager)
-                // Continue to next light after a brief pause for the command to send
+                // Continue to next light after a pause (allows 0.2s engine start to complete)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     var mutableRest = rest
                     self?.fireNextLight(&mutableRest, bleManager: bleManager)
@@ -249,23 +252,27 @@ class CueEngine: ObservableObject {
 
         if needsSoftwareEngine {
             let savedAddress = bleManager.targetUnicastAddress
+            // Capture the peripheral ID NOW — connectedPeripheral may change by the time the delay fires
+            let peripheralId = bleManager.connectedPeripheral?.identifier
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
                 guard let self = self else { return }
                 bleManager.targetUnicastAddress = address
 
                 switch effect {
                 case .faultyBulb:
-                    bleManager.startFaultyBulb(lightState: ls)
+                    bleManager.startFaultyBulb(lightState: ls, peripheralIdentifier: peripheralId)
                 case .paparazzi:
-                    bleManager.startPaparazzi(lightState: ls)
+                    bleManager.startPaparazzi(lightState: ls, peripheralIdentifier: peripheralId)
                 default:
-                    bleManager.startSoftwareEffect(lightState: ls)
+                    bleManager.startSoftwareEffect(lightState: ls, peripheralIdentifier: peripheralId)
                 }
 
                 bleManager.targetUnicastAddress = savedAddress
                 self.activeEffectStates.append(ls)
             }
         } else {
+            // Capture peripheral ID for the delayed hardware effect send
+            let peripheralId = bleManager.connectedPeripheral?.identifier
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                 bleManager.setEffect(
                     effectType: effect.rawValue,
@@ -276,7 +283,8 @@ class CueEngine: ObservableObject {
                     effectMode: effectColorMode,
                     hue: Int(state.hue),
                     saturation: Int(state.saturation),
-                    targetAddress: address
+                    targetAddress: address,
+                    viaPeripheral: peripheralId
                 )
             }
         }
@@ -287,6 +295,15 @@ class CueEngine: ObservableObject {
     /// Send 0% intensity to every light in the given cue for a clean break between cues.
     private func dimCueLights(_ cue: Cue) {
         guard let bm = bleManager else { return }
+
+        // When bridge is connected, send all dim commands immediately
+        if bm.bridgeManager.isConnected {
+            for entry in cue.lightEntries {
+                bm.bridgeManager.setCCT(unicast: entry.unicastAddress, intensity: 0, cctKelvin: 5600, sleepMode: 0)
+            }
+            return
+        }
+
         var remaining = Array(cue.lightEntries)
         dimNextLight(&remaining, bleManager: bm)
     }
@@ -351,7 +368,12 @@ class CueEngine: ObservableObject {
         durationWork?.cancel()
         durationWork = nil
 
-        bleManager?.stopEffect()
+        if let bm = bleManager, bm.bridgeManager.isConnected {
+            bm.bridgeManager.stopAll()
+        } else {
+            bleManager?.stopEffect()
+            bleManager?.disconnectAllExtra()
+        }
         activeEffectStates.removeAll()
     }
 

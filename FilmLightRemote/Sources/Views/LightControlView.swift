@@ -564,6 +564,12 @@ struct EffectsControls: View {
         guard lightState.selectedEffect != .faultyBulb else { return }
         if previewMode { return }
 
+        if bleManager.bridgeManager.isConnected {
+            let params = BridgeManager.effectParams(from: lightState, effect: lightState.selectedEffect)
+            bleManager.bridgeManager.updateEffect(unicast: bleManager.targetUnicastAddress, params: params)
+            return
+        }
+
         if needsSoftwareEngine {
             if lightState.selectedEffect == .paparazzi {
                 bleManager.paparazziEngine?.updateParams(from: lightState)
