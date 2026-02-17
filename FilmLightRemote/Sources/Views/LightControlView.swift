@@ -1102,10 +1102,29 @@ private struct ColorModeEffectDetail: View {
     var onModeChanged: () -> Void = {}
     @Binding var colorMode: LightMode
     var showFrequency: Bool = true
+    var showIntensity: Bool = true
     private let throttle = ThrottledSender()
 
     var body: some View {
         VStack(spacing: 12) {
+            // Intensity slider
+            if showIntensity {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Intensity")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text("\(Int(lightState.intensity))%")
+                            .font(.caption)
+                            .monospacedDigit()
+                    }
+
+                    Slider(value: $lightState.intensity, in: 0...100, step: 1)
+                        .onChange(of: lightState.intensity) { _ in throttle.send { onChanged() } }
+                }
+            }
+
             // Color mode picker: CCT / HSI
             Picker("Mode", selection: $colorMode) {
                 Text("CCT").tag(LightMode.cct)
@@ -1473,7 +1492,7 @@ private struct PulsingDetail: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            ColorModeEffectDetail(lightState: lightState, cctRange: cctRange, onChanged: onChanged, onModeChanged: onModeChanged, colorMode: $lightState.effectColorMode)
+            ColorModeEffectDetail(lightState: lightState, cctRange: cctRange, onChanged: onChanged, onModeChanged: onModeChanged, colorMode: $lightState.effectColorMode, showIntensity: false)
 
             // Intensity range slider
             VStack(alignment: .leading, spacing: 4) {
@@ -1543,6 +1562,22 @@ private struct CopCarDetail: View {
 
     var body: some View {
         VStack(spacing: 12) {
+            // Intensity slider
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Intensity")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text("\(Int(lightState.intensity))%")
+                        .font(.caption)
+                        .monospacedDigit()
+                }
+
+                Slider(value: $lightState.intensity, in: 0...100, step: 1)
+                    .onChange(of: lightState.intensity) { _ in throttle.send { onChanged() } }
+            }
+
             VStack(alignment: .leading, spacing: 6) {
                 Text("Color")
                     .font(.caption)
