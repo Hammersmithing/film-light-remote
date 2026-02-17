@@ -67,7 +67,7 @@ struct TimelineView: View {
                     }
                     if timeline.audioFileId == nil {
                         Button { showAudioPicker = true } label: {
-                            Label("Add Song", systemImage: "music.note")
+                            Label("Import Audio", systemImage: "music.note")
                         }
                     }
                     Button { showDurationEditor = true } label: {
@@ -821,7 +821,7 @@ struct TimelineView: View {
     // MARK: - Audio Lane
 
     private var audioLaneLabel: some View {
-        Text("Song")
+        Text("Audio")
             .font(.caption2)
             .fontWeight(.medium)
             .frame(width: trackLabelWidth, height: trackHeight)
@@ -831,7 +831,7 @@ struct TimelineView: View {
                 Button(role: .destructive) {
                     removeAudio()
                 } label: {
-                    Label("Remove Song", systemImage: "trash")
+                    Label("Remove Audio", systemImage: "trash")
                 }
             }
     }
@@ -852,7 +852,7 @@ struct TimelineView: View {
             Button(role: .destructive) {
                 removeAudio()
             } label: {
-                Label("Remove Song", systemImage: "trash")
+                Label("Remove Audio", systemImage: "trash")
             }
         }
     }
