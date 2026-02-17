@@ -43,19 +43,8 @@ struct CueListDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Menu {
-                    Button {
-                        addCue()
-                    } label: {
-                        Label("Add Cue", systemImage: "plus")
-                    }
-                    Button {
-                        engine.reset()
-                    } label: {
-                        Label("Reset to Top", systemImage: "arrow.counterclockwise")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
+                Button { addCue() } label: {
+                    Image(systemName: "plus")
                 }
             }
         }
