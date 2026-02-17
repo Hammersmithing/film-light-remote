@@ -16,6 +16,8 @@ struct TimelineView: View {
     @State private var showLightPicker = false
     @State private var showDurationEditor = false
     @State private var durationText = ""
+    @State private var showDurationWarning = false
+    @State private var pendingDuration: Double = 0
 
     // Dragging
     @State private var draggingBlockId: UUID?
@@ -42,7 +44,7 @@ struct TimelineView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
                     Button { showLightPicker = true } label: {
-                        Label("Add Track", systemImage: "plus")
+                        Label("Add Light", systemImage: "plus")
                     }
                     Button { showDurationEditor = true } label: {
                         Label("Set Duration", systemImage: "clock")
@@ -94,12 +96,30 @@ struct TimelineView: View {
             Button("Cancel", role: .cancel) {}
             Button("Set") {
                 if let d = Double(durationText), d > 0 {
-                    timeline.totalDuration = d
-                    save()
+                    let outOfBounds = blocksOutsideDuration(d)
+                    if outOfBounds > 0 {
+                        pendingDuration = d
+                        showDurationWarning = true
+                    } else {
+                        timeline.totalDuration = d
+                        save()
+                    }
                 }
             }
         } message: {
             Text("Set the total timeline length in seconds.")
+        }
+        .alert("Blocks Outside Timeline", isPresented: $showDurationWarning) {
+            Button("Cancel", role: .cancel) { pendingDuration = 0 }
+            Button("Delete & Set Duration", role: .destructive) {
+                removeBlocksOutsideDuration(pendingDuration)
+                timeline.totalDuration = pendingDuration
+                pendingDuration = 0
+                save()
+            }
+        } message: {
+            let count = blocksOutsideDuration(pendingDuration)
+            Text("\(count) block\(count == 1 ? "" : "s") will be deleted because \(count == 1 ? "it extends" : "they extend") past the new duration.")
         }
         .onAppear {
             engine.bleManager = bleManager
@@ -438,6 +458,20 @@ struct TimelineView: View {
         onUpdate()
     }
 
+    private func removeBlocksOutsideDuration(_ duration: Double) {
+        for i in timeline.tracks.indices {
+            timeline.tracks[i].blocks.removeAll {
+                $0.startTime >= duration || $0.startTime + $0.duration > duration
+            }
+        }
+    }
+
+    private func blocksOutsideDuration(_ duration: Double) -> Int {
+        timeline.tracks.flatMap { $0.blocks }.filter {
+            $0.startTime >= duration || $0.startTime + $0.duration > duration
+        }.count
+    }
+
     private func snapToGrid(_ time: Double) -> Double {
         (time / snapGrid).rounded() * snapGrid
     }
@@ -489,7 +523,7 @@ struct TimelineLightPickerView: View {
                 }
             }
         }
-        .navigationTitle("Add Track")
+        .navigationTitle("Add Light")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
