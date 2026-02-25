@@ -6,6 +6,7 @@
 #include "esp_gap_ble_api.h"
 #include "esp_gattc_api.h"
 #include "esp_gatt_defs.h"
+#include "esp_gatt_common_api.h"
 
 #include "mesh_crypto.h"
 #include "sidus_protocol.h"
@@ -50,7 +51,6 @@ static void handle_connect_event(esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_
 static void handle_disconnect_event(esp_ble_gattc_cb_param_t *param);
 static void handle_search_result(esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param);
 static void handle_search_complete(esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param);
-static void handle_read_char(esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param);
 static void handle_reg_for_notify(esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param);
 
 // Send proxy filter setup to a light
@@ -276,15 +276,10 @@ static void handle_reg_for_notify(esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param
                 gattc_if, conn_id,
                 param->reg_for_notify.handle + 1,  // CCC descriptor is typically handle+1
                 sizeof(notify_en), (uint8_t *)&notify_en,
-                ESP_GATT_WRITE_TYPE_DEF, ESP_GATT_AUTH_REQ_NONE);
+                ESP_GATT_WRITE_TYPE_RSP, ESP_GATT_AUTH_REQ_NONE);
             break;
         }
     }
-}
-
-static void handle_read_char(esp_gatt_if_t gattc_if, esp_ble_gattc_cb_param_t *param)
-{
-    // Not used currently
 }
 
 // Public API
@@ -380,7 +375,7 @@ esp_err_t ble_mesh_disconnect(uint16_t conn_id)
     return esp_ble_gattc_close(light->gattc_if, conn_id);
 }
 
-esp_err_t ble_mesh_write(uint16_t gattc_if, uint16_t conn_id, uint16_t handle,
+esp_err_t ble_mesh_write(esp_gatt_if_t gattc_if, uint16_t conn_id, uint16_t handle,
                           const uint8_t *data, int len)
 {
     if (handle == INVALID_HANDLE) return ESP_ERR_INVALID_STATE;

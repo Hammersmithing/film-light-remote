@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "esp_gatt_defs.h"
 
 #define MAX_LIGHTS 9
 
@@ -12,7 +13,7 @@ typedef struct {
     uint8_t ble_addr[6];       // BLE MAC address
     uint16_t unicast;           // Mesh unicast address
     uint16_t gattc_conn_id;    // ESP GATT client connection ID
-    uint16_t gattc_if;         // GATT client interface
+    esp_gatt_if_t gattc_if;    // GATT client interface
     uint16_t mesh_proxy_handle; // 2ADD characteristic handle
     bool registered;            // Has been added via add_light
     bool connected;             // BLE GATT connected and ready

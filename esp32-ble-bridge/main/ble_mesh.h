@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "esp_err.h"
+#include "esp_gatt_defs.h"
 
 // Initialize BLE GATT client
 esp_err_t ble_mesh_init(void);
@@ -15,7 +16,7 @@ esp_err_t ble_mesh_disconnect(uint16_t conn_id);
 
 // Write a mesh proxy PDU to a specific light's 2ADD characteristic.
 // conn_id and handle come from the light_registry.
-esp_err_t ble_mesh_write(uint16_t gattc_if, uint16_t conn_id, uint16_t handle,
+esp_err_t ble_mesh_write(esp_gatt_if_t gattc_if, uint16_t conn_id, uint16_t handle,
                           const uint8_t *data, int len);
 
 // Send a CCT command to a light via its unicast address

@@ -18,8 +18,8 @@ static const char *TAG = "wifi";
 #define WIFI_MAX_RETRY     10
 
 // Default credentials — overridden by NVS if stored
-#define DEFAULT_SSID       "YourWiFiSSID"
-#define DEFAULT_PASS       "YourWiFiPassword"
+#define DEFAULT_SSID       "Yoohoobigsummablowout"
+#define DEFAULT_PASS       "Nashwifi2319"
 
 static EventGroupHandle_t s_wifi_event_group;
 static int s_retry_num = 0;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <stdbool.h>
 
 // Build a 10-byte Sidus CCT payload.
 // intensity: 0-100 percent, cct_kelvin: e.g. 5600, sleep_mode: 0 or 1

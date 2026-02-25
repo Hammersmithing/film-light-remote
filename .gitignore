@@ -55,6 +55,12 @@ Thumb.db
 # Analysis files (too large for git)
 analysis/
 
+# ESP-IDF build artifacts
+sdkconfig
+sdkconfig.old
+esp32-ble-bridge/build/
+esp32-ble-bridge/managed_components/
+
 # Android bugreports (contain personal data)
 bugreport.zip
 bugreport_extract/
