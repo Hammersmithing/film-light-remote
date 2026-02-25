@@ -12,14 +12,13 @@ void light_registry_init(void)
     ESP_LOGI(TAG, "Light registry initialized (max %d)", MAX_LIGHTS);
 }
 
-light_entry_t *light_registry_add(const char *id, const uint8_t *ble_addr, uint16_t unicast, const char *name)
+light_entry_t *light_registry_add(const char *id, uint16_t unicast, const char *name)
 {
     // Check if already registered
     light_entry_t *existing = light_registry_find_by_unicast(unicast);
     if (existing) {
         // Update existing entry
         strncpy(existing->id, id, sizeof(existing->id) - 1);
-        memcpy(existing->ble_addr, ble_addr, 6);
         strncpy(existing->name, name, sizeof(existing->name) - 1);
         ESP_LOGI(TAG, "Updated light unicast=0x%04X name=%s", unicast, name);
         return existing;
@@ -29,19 +28,12 @@ light_entry_t *light_registry_add(const char *id, const uint8_t *ble_addr, uint1
     for (int i = 0; i < MAX_LIGHTS; i++) {
         if (!lights[i].registered) {
             strncpy(lights[i].id, id, sizeof(lights[i].id) - 1);
-            memcpy(lights[i].ble_addr, ble_addr, 6);
             lights[i].unicast = unicast;
             strncpy(lights[i].name, name, sizeof(lights[i].name) - 1);
             lights[i].registered = true;
             lights[i].connected = false;
-            lights[i].discovering = false;
-            lights[i].gattc_conn_id = 0xFFFF;
-            lights[i].mesh_proxy_handle = 0;
             lights[i].active_effect = NULL;
-            ESP_LOGI(TAG, "Added light[%d] unicast=0x%04X addr=%02X:%02X:%02X:%02X:%02X:%02X name=%s",
-                     i, unicast,
-                     ble_addr[0], ble_addr[1], ble_addr[2],
-                     ble_addr[3], ble_addr[4], ble_addr[5], name);
+            ESP_LOGI(TAG, "Added light[%d] unicast=0x%04X name=%s", i, unicast, name);
             return &lights[i];
         }
     }
@@ -54,26 +46,6 @@ light_entry_t *light_registry_find_by_unicast(uint16_t unicast)
 {
     for (int i = 0; i < MAX_LIGHTS; i++) {
         if (lights[i].registered && lights[i].unicast == unicast) {
-            return &lights[i];
-        }
-    }
-    return NULL;
-}
-
-light_entry_t *light_registry_find_by_conn_id(uint16_t conn_id)
-{
-    for (int i = 0; i < MAX_LIGHTS; i++) {
-        if (lights[i].registered && lights[i].connected && lights[i].gattc_conn_id == conn_id) {
-            return &lights[i];
-        }
-    }
-    return NULL;
-}
-
-light_entry_t *light_registry_find_by_addr(const uint8_t *ble_addr)
-{
-    for (int i = 0; i < MAX_LIGHTS; i++) {
-        if (lights[i].registered && memcmp(lights[i].ble_addr, ble_addr, 6) == 0) {
             return &lights[i];
         }
     }

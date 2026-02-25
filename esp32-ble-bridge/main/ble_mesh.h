@@ -8,14 +8,17 @@
 // Initialize BLE GATT client
 esp_err_t ble_mesh_init(void);
 
-// Connect to a light by BLE MAC address
-esp_err_t ble_mesh_connect(const uint8_t ble_addr[6]);
+// Scan for any mesh proxy node (service 0x1828) and connect.
+// Once connected, all lights are reachable via mesh addressing.
+esp_err_t ble_mesh_connect_proxy(void);
 
-// Disconnect a light by GATT connection ID
-esp_err_t ble_mesh_disconnect(uint16_t conn_id);
+// Returns true if a mesh proxy connection is active
+bool ble_mesh_is_proxy_connected(void);
 
-// Write a mesh proxy PDU to a specific light's 2ADD characteristic.
-// conn_id and handle come from the light_registry.
+// Disconnect the mesh proxy connection
+esp_err_t ble_mesh_disconnect_proxy(void);
+
+// Write a mesh proxy PDU to the proxy's 2ADD characteristic.
 esp_err_t ble_mesh_write(esp_gatt_if_t gattc_if, uint16_t conn_id, uint16_t handle,
                           const uint8_t *data, int len);
 

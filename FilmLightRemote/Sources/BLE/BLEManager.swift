@@ -129,8 +129,7 @@ class BLEManager: NSObject, ObservableObject {
     // Scanning
     private var scanTimer: Timer?
 
-    // Periodic state polling
-    private var statePollingTimer: Timer?
+    // (state polling removed — bridge handles state)
 
     override init() {
         super.init()
@@ -230,9 +229,6 @@ class BLEManager: NSObject, ObservableObject {
         // If connecting to a different peripheral in single-light mode, clean up the old one
         // (keepExisting = true preserves connections for multi-light cues)
         if !keepExisting, connectedPeripheral?.identifier != identifier {
-            stopFaultyBulb()
-            stopPaparazzi()
-            stopSoftwareEffect()
             // Explicitly disconnect the old peripheral and remove from registry
             if let old = connectedPeripheral {
                 peripheralConnections.removeValue(forKey: old.identifier)
@@ -369,27 +365,7 @@ class BLEManager: NSObject, ObservableObject {
     func setIntensity(_ percent: Double) {
         currentIntensity = Int(percent)
         currentMode = "cct"
-        guard let peripheral = connectedPeripheral else { return }
-
-        let protocolIntensity = Int(round(percent * 10))
-        log("setIntensity(\(percent)%) protocolValue=\(protocolIntensity) cct=\(currentCCT)K target=0x\(String(format: "%04X", targetUnicastAddress))")
-
-        // Sidus opcode 0x26 + CCTProtocol — controls intensity via CCT mode
-        let cctCmd = CCTProtocol(intensityPercent: percent, cctKelvin: currentCCT)
-        let payload = cctCmd.getSendData()
-        log("  payload hex: \(payload.map { String(format: "%02X", $0) }.joined(separator: " "))")
-        var accessMessage: [UInt8] = [0x26]
-        accessMessage.append(contentsOf: payload)
-
-        if let char = meshProxyIn {
-            if let meshPDU = MeshCrypto.createStandardMeshPDU(
-                accessMessage: accessMessage,
-                dst: targetUnicastAddress
-            ) {
-                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
-                log("  Sent CCT intensity(\(percent)%) protocolValue=\(protocolIntensity) to 0x\(String(format: "%04X", targetUnicastAddress))")
-            }
-        }
+        bridgeManager.setCCT(unicast: targetUnicastAddress, intensity: percent, cctKelvin: currentCCT, sleepMode: 1)
     }
 
     /// Write a mesh PDU through a specific peripheral connection, or fall back to connectedPeripheral.
@@ -409,58 +385,15 @@ class BLEManager: NSObject, ObservableObject {
     }
 
     /// Set CCT with explicit values and sleepMode control for instant on/off transitions.
-    /// sleepMode=0 puts the light to sleep (instant off), sleepMode=1 wakes it (on).
-    /// Pass targetAddress to override the default targetUnicastAddress (used by background engines).
-    func setCCTWithSleep(intensity percent: Double, cctKelvin: Int, sleepMode: Int, targetAddress: UInt16? = nil, viaPeripheral: UUID? = nil) {
+    func setCCTWithSleep(intensity percent: Double, cctKelvin: Int, sleepMode: Int, targetAddress: UInt16? = nil) {
         let dst = targetAddress ?? targetUnicastAddress
-
-        if bridgeManager.isConnected {
-            bridgeManager.setCCT(unicast: dst, intensity: percent, cctKelvin: cctKelvin, sleepMode: sleepMode)
-            return
-        }
-
-        let protocolIntensity = Int(round(percent * 10))
-        let cmd = CCTProtocol(
-            intensity: protocolIntensity,
-            cct: cctKelvin / 10,
-            gm: 100,
-            gmFlag: 0,
-            sleepMode: sleepMode,
-            autoPatchFlag: 0
-        )
-        let payload = cmd.getSendData()
-        log("setCCTWithSleep(i:\(percent)% pv:\(protocolIntensity) cct:\(cctKelvin)K sleep:\(sleepMode)) payload: \(payload.map { String(format: "%02X", $0) }.joined(separator: " "))")
-        var accessMessage: [UInt8] = [0x26]
-        accessMessage.append(contentsOf: payload)
-
-        writeMesh(accessMessage: accessMessage, dst: dst, viaPeripheral: viaPeripheral)
+        bridgeManager.setCCT(unicast: dst, intensity: percent, cctKelvin: cctKelvin, sleepMode: sleepMode)
     }
 
     /// Set HSI with explicit values and sleepMode control for instant on/off transitions.
-    /// Pass targetAddress to override the default targetUnicastAddress (used by background engines).
-    func setHSIWithSleep(intensity percent: Double, hue: Int, saturation: Int, cctKelvin: Int = 5600, sleepMode: Int, targetAddress: UInt16? = nil, viaPeripheral: UUID? = nil) {
+    func setHSIWithSleep(intensity percent: Double, hue: Int, saturation: Int, cctKelvin: Int = 5600, sleepMode: Int, targetAddress: UInt16? = nil) {
         let dst = targetAddress ?? targetUnicastAddress
-
-        if bridgeManager.isConnected {
-            bridgeManager.setHSI(unicast: dst, intensity: percent, hue: hue, saturation: saturation, cctKelvin: cctKelvin, sleepMode: sleepMode)
-            return
-        }
-
-        let cmd = HSIProtocol(
-            intensity: Int(round(percent * 10)),
-            hue: hue,
-            sat: saturation,
-            cct: cctKelvin / 50,
-            gm: 100,
-            gmFlag: 0,
-            sleepMode: sleepMode,
-            autoPatchFlag: 0
-        )
-        let payload = cmd.getSendData()
-        var accessMessage: [UInt8] = [0x26]
-        accessMessage.append(contentsOf: payload)
-
-        writeMesh(accessMessage: accessMessage, dst: dst, viaPeripheral: viaPeripheral)
+        bridgeManager.setHSI(unicast: dst, intensity: percent, hue: hue, saturation: saturation, cctKelvin: cctKelvin, sleepMode: sleepMode)
     }
 
     /// Current CCT value for combined commands
@@ -469,25 +402,7 @@ class BLEManager: NSObject, ObservableObject {
     func setCCT(_ kelvin: Int) {
         currentCCT = kelvin
         currentMode = "cct"
-        guard let peripheral = connectedPeripheral else { return }
-
-        log("setCCT(\(kelvin)K) target=0x\(String(format: "%04X", targetUnicastAddress))")
-
-        // Sidus opcode 0x26 + CCTProtocol — sets both intensity and CCT
-        let cctCmd = CCTProtocol(intensityPercent: Double(currentIntensity), cctKelvin: kelvin)
-        let payload = cctCmd.getSendData()
-        var accessMessage: [UInt8] = [0x26]
-        accessMessage.append(contentsOf: payload)
-
-        if let char = meshProxyIn {
-            if let meshPDU = MeshCrypto.createStandardMeshPDU(
-                accessMessage: accessMessage,
-                dst: targetUnicastAddress
-            ) {
-                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
-                log("  Sent CCT(\(kelvin)K, \(currentIntensity)%) to 0x\(String(format: "%04X", targetUnicastAddress))")
-            }
-        }
+        bridgeManager.setCCT(unicast: targetUnicastAddress, intensity: Double(currentIntensity), cctKelvin: kelvin, sleepMode: 1)
     }
 
     func setRGB(red: Int, green: Int, blue: Int) {
@@ -502,285 +417,63 @@ class BLEManager: NSObject, ObservableObject {
         currentSaturation = saturation
         currentIntensity = intensity
         currentHSICCT = cctKelvin
-        guard let peripheral = connectedPeripheral else { return }
-
-        log("setHSI(h:\(hue), s:\(saturation), i:\(intensity), cct:\(cctKelvin)K) target=0x\(String(format: "%04X", targetUnicastAddress))")
-
-        // Sidus opcode 0x26 + HSIProtocol — sets hue, saturation, intensity, white balance
-        let cmd = HSIProtocol(intensityPercent: Double(intensity), hue: hue, saturationPercent: Double(saturation), cctKelvin: cctKelvin)
-        let payload = cmd.getSendData()
-        var accessMessage: [UInt8] = [0x26]
-        accessMessage.append(contentsOf: payload)
-
-        if let char = meshProxyIn {
-            if let meshPDU = MeshCrypto.createStandardMeshPDU(
-                accessMessage: accessMessage,
-                dst: targetUnicastAddress
-            ) {
-                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
-                log("  Sent HSI(h:\(hue), s:\(saturation), i:\(intensity)) to 0x\(String(format: "%04X", targetUnicastAddress))")
-            }
-        }
+        bridgeManager.setHSI(unicast: targetUnicastAddress, intensity: Double(intensity), hue: hue, saturation: saturation, cctKelvin: cctKelvin, sleepMode: 1)
     }
 
     func setPowerOn(_ on: Bool) {
-        guard let peripheral = connectedPeripheral else { return }
-
-        log("setPower(\(on)) mode=\(currentMode) target=0x\(String(format: "%04X", targetUnicastAddress))")
-
+        let sleepMode = on ? 1 : 0
         let intensity = on ? max(currentIntensity, 10) : 0
-        let payload: Data
-
         if currentMode == "hsi" {
-            let cmd = HSIProtocol(
-                intensity: intensity * 10,
-                hue: currentHue,
-                sat: currentSaturation,
-                cct: currentHSICCT / 50,
-                gm: 100,
-                gmFlag: 0,
-                sleepMode: on ? 1 : 0,
-                autoPatchFlag: 0
-            )
-            payload = cmd.getSendData()
+            bridgeManager.setHSI(unicast: targetUnicastAddress, intensity: Double(intensity), hue: currentHue, saturation: currentSaturation, cctKelvin: currentHSICCT, sleepMode: sleepMode)
         } else {
-            let cmd = CCTProtocol(
-                intensity: intensity * 10,
-                cct: currentCCT / 10,
-                gm: 100,
-                gmFlag: 0,
-                sleepMode: on ? 1 : 0,
-                autoPatchFlag: 0
-            )
-            payload = cmd.getSendData()
-        }
-
-        var accessMessage: [UInt8] = [0x26]
-        accessMessage.append(contentsOf: payload)
-
-        if let char = meshProxyIn {
-            if let meshPDU = MeshCrypto.createStandardMeshPDU(
-                accessMessage: accessMessage,
-                dst: targetUnicastAddress
-            ) {
-                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
-                log("  Sent \(currentMode) power \(on ? "ON" : "OFF") (intensity=\(intensity)%) to 0x\(String(format: "%04X", targetUnicastAddress))")
-            }
+            bridgeManager.setCCT(unicast: targetUnicastAddress, intensity: Double(intensity), cctKelvin: currentCCT, sleepMode: sleepMode)
         }
     }
 
-    func setEffect(effectType: Int, intensityPercent: Double, frq: Int, cctKelvin: Int = 5600, copCarColor: Int = 0, effectMode: Int = 0, hue: Int = 0, saturation: Int = 100, targetAddress: UInt16? = nil, viaPeripheral: UUID? = nil) {
+    func setEffect(effectType: Int, intensityPercent: Double, frq: Int, cctKelvin: Int = 5600, copCarColor: Int = 0, effectMode: Int = 0, hue: Int = 0, saturation: Int = 100, targetAddress: UInt16? = nil) {
         currentMode = "effects"
         let dst = targetAddress ?? targetUnicastAddress
-
-        if bridgeManager.isConnected {
-            bridgeManager.setEffect(unicast: dst, effectType: effectType, intensity: intensityPercent, frq: frq, cctKelvin: cctKelvin, copCarColor: copCarColor, effectMode: effectMode, hue: hue, saturation: saturation)
-            return
-        }
-
-        log("setEffect(type:\(effectType), intensity:\(intensityPercent)%, frq:\(frq), mode:\(effectMode)) target=0x\(String(format: "%04X", dst))")
-
-        var cmd = SidusEffectProtocol(effectType: effectType, intensityPercent: intensityPercent, frq: frq, cctKelvin: cctKelvin)
-        cmd.color = copCarColor
-        cmd.effectMode = effectMode
-        cmd.hue = hue
-        cmd.sat = saturation
-        let payload = cmd.getSendData()
-        var accessMessage: [UInt8] = [0x26]
-        accessMessage.append(contentsOf: payload)
-
-        writeMesh(accessMessage: accessMessage, dst: dst, viaPeripheral: viaPeripheral)
-        log("  Sent effect type=\(effectType) to 0x\(String(format: "%04X", dst))")
+        bridgeManager.setEffect(unicast: dst, effectType: effectType, intensity: intensityPercent, frq: frq, cctKelvin: cctKelvin, copCarColor: copCarColor, effectMode: effectMode, hue: hue, saturation: saturation)
     }
 
-    /// Send a dedicated SleepProtocol (commandType=12) for instant on/off — no color data to process.
-    func sendSleep(_ on: Bool, targetAddress: UInt16? = nil, viaPeripheral: UUID? = nil) {
+    /// Send sleep command for instant on/off.
+    func sendSleep(_ on: Bool, targetAddress: UInt16? = nil) {
         let dst = targetAddress ?? targetUnicastAddress
-
-        if bridgeManager.isConnected {
-            bridgeManager.sendSleep(unicast: dst, on: on)
-            return
-        }
-
-        let cmd = SleepProtocol(on: on)
-        let payload = cmd.getSendData()
-        var accessMessage: [UInt8] = [0x26]
-        accessMessage.append(contentsOf: payload)
-
-        writeMesh(accessMessage: accessMessage, dst: dst, viaPeripheral: viaPeripheral)
+        bridgeManager.sendSleep(unicast: dst, on: on)
     }
 
     func stopEffect() {
-        stopFaultyBulb()
-        stopPaparazzi()
-        stopSoftwareEffect()
-
-        if bridgeManager.isConnected {
-            bridgeManager.stopEffect(unicast: targetUnicastAddress)
-            log("stopEffect() via bridge for 0x\(String(format: "%04X", targetUnicastAddress))")
-            return
-        }
-
-        guard let peripheral = connectedPeripheral else { return }
-
-        log("stopEffect() target=0x\(String(format: "%04X", targetUnicastAddress))")
-
-        let cmd = SidusEffectProtocol(effectType: 15) // Effect Off
-        let payload = cmd.getSendData()
-        var accessMessage: [UInt8] = [0x26]
-        accessMessage.append(contentsOf: payload)
-
-        if let char = meshProxyIn {
-            if let meshPDU = MeshCrypto.createStandardMeshPDU(
-                accessMessage: accessMessage,
-                dst: targetUnicastAddress
-            ) {
-                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
-                log("  Sent effect OFF to 0x\(String(format: "%04X", targetUnicastAddress))")
-            }
-        }
+        bridgeManager.stopEffect(unicast: targetUnicastAddress)
+        log("stopEffect() via bridge for 0x\(String(format: "%04X", targetUnicastAddress))")
     }
 
-    /// Disconnect all peripherals except the primary `connectedPeripheral`.
-    /// Called when cue execution completes or is cancelled, to clean up extra connections.
-    func disconnectAllExtra() {
-        guard let primaryId = connectedPeripheral?.identifier else { return }
-        for (id, conn) in peripheralConnections where id != primaryId {
-            log("Disconnecting extra peripheral \(conn.peripheral.name ?? id.uuidString)")
-            centralManager.cancelPeripheralConnection(conn.peripheral)
-            // peripheralConnections entry removed in didDisconnect delegate
-        }
+    // MARK: - Software Effect Commands (bridge-only)
+
+    /// Start a faulty bulb effect on the bridge.
+    func startFaultyBulb(lightState: LightState) {
+        let params = BridgeManager.effectParams(from: lightState, effect: .faultyBulb)
+        bridgeManager.startSoftwareEffect(unicast: targetUnicastAddress, engine: "faultyBulb", params: params)
+        log("Faulty bulb engine started on bridge for 0x\(String(format: "%04X", targetUnicastAddress))")
     }
 
-    // MARK: - Software Effect Engines
-
-    private(set) var faultyBulbEngines: [FaultyBulbEngine] = []
-    private(set) var paparazziEngines: [PaparazziEngine] = []
-    private(set) var softwareEffectEngines: [SoftwareEffectEngine] = []
-
-    /// Convenience accessors for single-light views (returns first engine, if any)
-    var faultyBulbEngine: FaultyBulbEngine? { faultyBulbEngines.first }
-    var paparazziEngine: PaparazziEngine? { paparazziEngines.first }
-    var softwareEffectEngine: SoftwareEffectEngine? { softwareEffectEngines.first }
-
-    /// Whether a background engine is actively running
-    var hasActiveEngine: Bool { !faultyBulbEngines.isEmpty || !paparazziEngines.isEmpty || !softwareEffectEngines.isEmpty }
-
-    /// Start a faulty bulb engine. Multiple can run concurrently on different lights.
-    func startFaultyBulb(lightState: LightState, peripheralIdentifier: UUID? = nil) {
-        if bridgeManager.isConnected {
-            let params = BridgeManager.effectParams(from: lightState, effect: .faultyBulb)
-            bridgeManager.startSoftwareEffect(unicast: targetUnicastAddress, engine: "faultyBulb", params: params)
-            log("Faulty bulb engine started on bridge for 0x\(String(format: "%04X", targetUnicastAddress))")
-            return
-        }
-        // Stop any existing engine on this same light
-        stopFaultyBulb(forAddress: targetUnicastAddress)
-        let engine = FaultyBulbEngine()
-        faultyBulbEngines.append(engine)
-        engine.start(bleManager: self, lightState: lightState, targetAddress: targetUnicastAddress, peripheralIdentifier: peripheralIdentifier)
-        log("Faulty bulb engine started for 0x\(String(format: "%04X", targetUnicastAddress))")
-    }
-
-    /// Stop faulty bulb engine for a specific light, or all if no address given.
+    /// Stop faulty bulb effect for a specific light, or current target.
     func stopFaultyBulb(forAddress address: UInt16? = nil) {
-        if bridgeManager.isConnected {
-            if let address = address {
-                bridgeManager.stopEffect(unicast: address)
-            }
-            // Local engines won't be running in bridge mode, but clean up just in case
-        }
-        if let address = address {
-            faultyBulbEngines.removeAll { engine in
-                if engine.targetAddress == address {
-                    engine.stop()
-                    log("Faulty bulb engine stopped for 0x\(String(format: "%04X", address))")
-                    return true
-                }
-                return false
-            }
-        } else if !faultyBulbEngines.isEmpty {
-            faultyBulbEngines.forEach { $0.stop() }
-            faultyBulbEngines.removeAll()
-            log("All faulty bulb engines stopped")
-        }
+        bridgeManager.stopEffect(unicast: address ?? targetUnicastAddress)
     }
 
-    /// Start a paparazzi engine. Multiple can run concurrently on different lights.
-    func startPaparazzi(lightState: LightState, peripheralIdentifier: UUID? = nil) {
-        if bridgeManager.isConnected {
-            let params = BridgeManager.effectParams(from: lightState, effect: .paparazzi)
-            bridgeManager.startSoftwareEffect(unicast: targetUnicastAddress, engine: "paparazzi", params: params)
-            log("Paparazzi engine started on bridge for 0x\(String(format: "%04X", targetUnicastAddress))")
-            return
-        }
-        stopPaparazzi(forAddress: targetUnicastAddress)
-        let engine = PaparazziEngine()
-        paparazziEngines.append(engine)
-        engine.start(bleManager: self, lightState: lightState, targetAddress: targetUnicastAddress, peripheralIdentifier: peripheralIdentifier)
-        log("Paparazzi engine started for 0x\(String(format: "%04X", targetUnicastAddress))")
+    /// Start a paparazzi effect on the bridge.
+    func startPaparazzi(lightState: LightState) {
+        let params = BridgeManager.effectParams(from: lightState, effect: .paparazzi)
+        bridgeManager.startSoftwareEffect(unicast: targetUnicastAddress, engine: "paparazzi", params: params)
+        log("Paparazzi engine started on bridge for 0x\(String(format: "%04X", targetUnicastAddress))")
     }
 
-    /// Stop paparazzi engine for a specific light, or all if no address given.
-    func stopPaparazzi(forAddress address: UInt16? = nil) {
-        if bridgeManager.isConnected {
-            if let address = address {
-                bridgeManager.stopEffect(unicast: address)
-            }
-        }
-        if let address = address {
-            paparazziEngines.removeAll { engine in
-                if engine.targetAddress == address {
-                    engine.stop()
-                    log("Paparazzi engine stopped for 0x\(String(format: "%04X", address))")
-                    return true
-                }
-                return false
-            }
-        } else if !paparazziEngines.isEmpty {
-            paparazziEngines.forEach { $0.stop() }
-            paparazziEngines.removeAll()
-            log("All paparazzi engines stopped")
-        }
-    }
-
-    /// Start a software effect engine. Multiple can run concurrently on different lights.
-    func startSoftwareEffect(lightState: LightState, peripheralIdentifier: UUID? = nil) {
-        if bridgeManager.isConnected {
-            let effect = lightState.selectedEffect
-            let params = BridgeManager.effectParams(from: lightState, effect: effect)
-            bridgeManager.startSoftwareEffect(unicast: targetUnicastAddress, engine: BridgeManager.engineName(for: effect), params: params)
-            log("Software effect engine started on bridge: \(effect) for 0x\(String(format: "%04X", targetUnicastAddress))")
-            return
-        }
-        stopSoftwareEffect(forAddress: targetUnicastAddress)
-        let engine = SoftwareEffectEngine()
-        softwareEffectEngines.append(engine)
-        engine.start(bleManager: self, lightState: lightState, targetAddress: targetUnicastAddress, peripheralIdentifier: peripheralIdentifier)
-        log("Software effect engine started: \(lightState.selectedEffect) for 0x\(String(format: "%04X", targetUnicastAddress))")
-    }
-
-    /// Stop software effect engine for a specific light, or all if no address given.
-    func stopSoftwareEffect(forAddress address: UInt16? = nil) {
-        if bridgeManager.isConnected {
-            if let address = address {
-                bridgeManager.stopEffect(unicast: address)
-            }
-        }
-        if let address = address {
-            softwareEffectEngines.removeAll { engine in
-                if engine.targetAddress == address {
-                    engine.stop()
-                    log("Software effect engine stopped for 0x\(String(format: "%04X", address))")
-                    return true
-                }
-                return false
-            }
-        } else if !softwareEffectEngines.isEmpty {
-            softwareEffectEngines.forEach { $0.stop() }
-            softwareEffectEngines.removeAll()
-            log("All software effect engines stopped")
-        }
+    /// Start a software effect on the bridge.
+    func startSoftwareEffect(lightState: LightState) {
+        let effect = lightState.selectedEffect
+        let params = BridgeManager.effectParams(from: lightState, effect: effect)
+        bridgeManager.startSoftwareEffect(unicast: targetUnicastAddress, engine: BridgeManager.engineName(for: effect), params: params)
+        log("Software effect engine started on bridge: \(effect) for 0x\(String(format: "%04X", targetUnicastAddress))")
     }
 
     /// Convert RGB to HSI
@@ -820,57 +513,7 @@ class BLEManager: NSObject, ObservableObject {
         return (Int(h), Int(s * 100), Int(i * 100))
     }
 
-    // MARK: - State Polling
-
-    /// Start polling the light for its current state every few seconds
-    func startStatePolling(interval: TimeInterval = 3.0) {
-        stopStatePolling()
-        log("Starting state polling (every \(interval)s)")
-        statePollingTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            self?.queryLightState()
-        }
-    }
-
-    /// Stop polling
-    func stopStatePolling() {
-        statePollingTimer?.invalidate()
-        statePollingTimer = nil
-    }
-
-    // MARK: - State Query
-
-    /// Query the light's current state by re-sending the current CCT/HSI state via mesh.
-    /// After model publication is configured, the light responds with its ACTUAL state
-    /// (which may differ from what we sent if physical controls were used).
-    func queryLightState() {
-        guard let peripheral = connectedPeripheral, let char = meshProxyIn else {
-            log("queryLightState: no mesh proxy connection")
-            return
-        }
-
-        // Re-send current state as a normal SET command — the light will respond
-        // with its actual state via the configured publication address
-        let payload: Data
-        if currentMode == "hsi" {
-            let cmd = HSIProtocol(intensityPercent: Double(currentIntensity), hue: currentHue, saturationPercent: Double(currentSaturation), cctKelvin: currentHSICCT)
-            payload = cmd.getSendData()
-        } else {
-            let cmd = CCTProtocol(intensityPercent: Double(currentIntensity), cctKelvin: currentCCT)
-            payload = cmd.getSendData()
-        }
-
-        var accessMessage: [UInt8] = [0x26]
-        accessMessage.append(contentsOf: payload)
-
-        log("queryLightState: re-sending current state (\(currentMode), \(currentIntensity)%) via mesh")
-
-        if let meshPDU = MeshCrypto.createStandardMeshPDU(
-            accessMessage: accessMessage,
-            dst: targetUnicastAddress
-        ) {
-            peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
-        }
-    }
+    // (State polling removed — bridge handles state)
 
     // MARK: - Proxy Filter Setup
 
@@ -922,7 +565,6 @@ class BLEManager: NSObject, ObservableObject {
     // MARK: - Private Methods
 
     private func cleanup() {
-        stopStatePolling()
         connectedPeripheral = nil
         connectedLight = nil
         controlCharacteristic = nil
@@ -1135,29 +777,6 @@ extension BLEManager: CBCentralManagerDelegate {
 
         // Remove from the multi-peripheral registry
         peripheralConnections.removeValue(forKey: peripheral.identifier)
-
-        // Stop engines that were targeting this peripheral
-        faultyBulbEngines.removeAll { engine in
-            if engine.peripheralIdentifier == peripheral.identifier {
-                engine.stop()
-                return true
-            }
-            return false
-        }
-        paparazziEngines.removeAll { engine in
-            if engine.peripheralIdentifier == peripheral.identifier {
-                engine.stop()
-                return true
-            }
-            return false
-        }
-        softwareEffectEngines.removeAll { engine in
-            if engine.peripheralIdentifier == peripheral.identifier {
-                engine.stop()
-                return true
-            }
-            return false
-        }
 
         // Only full cleanup if the disconnected peripheral was the primary one
         if peripheral.identifier == connectedPeripheral?.identifier {
@@ -1478,750 +1097,3 @@ extension Data {
     }
 }
 
-// MARK: - Faulty Bulb Software Engine
-/// Sends random intensity values within a range at irregular intervals,
-/// simulating a realistic faulty/flickering bulb effect.
-/// Self-contained: stores its own copies of all parameters and target address
-/// so it keeps running even after the light session view is dismissed.
-class FaultyBulbEngine {
-    private var workItem: DispatchWorkItem?
-    private var bleManager: BLEManager? // Strong ref — engine outlives the view
-    private var currentIntensity: Double = 50.0
-    /// Dedicated background queue so the engine keeps running when the app is backgrounded
-    private let queue = DispatchQueue(label: "com.filmlightremote.faultybulb", qos: .userInitiated)
-
-    // Stored parameters — engine is self-contained, does not depend on LightState
-    private(set) var targetAddress: UInt16 = 0x0002
-    /// The peripheral this engine writes through (set at start time).
-    private(set) var peripheralIdentifier: UUID = UUID()
-    private var colorMode: LightMode = .cct
-    private var cctKelvin: Int = 5600
-    private var hue: Int = 0
-    private var saturation: Int = 100
-    private var hsiCCT: Int = 5600
-    private var minIntensity: Double = 20.0
-    private var maxIntensity: Double = 100.0
-    private var biasValue: Double = 100.0
-    private var recoveryValue: Double = 100.0
-    private var warmthValue: Double = 0.0
-    private var warmestCCT: Int = 2700
-    private var pointCount: Int = 2
-    private var transitionValue: Double = 0.0
-    private var frequencyValue: Double = 5.0
-
-    func start(bleManager: BLEManager, lightState: LightState, targetAddress: UInt16, peripheralIdentifier: UUID? = nil) {
-        stop()
-        self.bleManager = bleManager
-        self.targetAddress = targetAddress
-        self.peripheralIdentifier = peripheralIdentifier ?? bleManager.connectedPeripheral?.identifier ?? UUID()
-        self.currentIntensity = lightState.intensity
-        updateParams(from: lightState)
-        fireEvent()
-    }
-
-    func stop() {
-        workItem?.cancel()
-        workItem = nil
-        bleManager = nil
-    }
-
-    /// Update stored parameters from lightState (called when user adjusts sliders while view is open)
-    func updateParams(from lightState: LightState) {
-        colorMode = lightState.faultyBulbColorMode
-        cctKelvin = Int(lightState.cctKelvin)
-        hue = Int(lightState.hue)
-        saturation = Int(lightState.saturation)
-        hsiCCT = Int(lightState.hsiCCT)
-        minIntensity = lightState.faultyBulbMin
-        maxIntensity = lightState.faultyBulbMax
-        biasValue = lightState.faultyBulbBias
-        recoveryValue = lightState.faultyBulbRecovery
-        warmthValue = lightState.faultyBulbWarmth
-        warmestCCT = Int(lightState.warmestCCT)
-        pointCount = Int(lightState.faultyBulbPoints)
-        transitionValue = lightState.faultyBulbTransition
-        frequencyValue = lightState.faultyBulbFrequency
-    }
-
-    /// Send intensity via CCT or HSI depending on color mode, using stored target address.
-    /// When warmth > 0, the CCT shifts warmer proportional to how deep the intensity dip is.
-    private func sendIntensity(_ percent: Double, sleepMode: Int) {
-        guard let mgr = bleManager else { return }
-
-        // Linear warmth shift: at warmth=100, CCT maps linearly from baseCCT
-        // (at max intensity) to warmestCCT (at min intensity). Warmth slider
-        // controls how far toward warmestCCT the low end reaches.
-        let adjustedCCT: Int
-        if warmthValue > 0 && maxIntensity > minIntensity {
-            let dipDepth = max(0, min(1, (maxIntensity - percent) / (maxIntensity - minIntensity)))
-            let shift = dipDepth * (warmthValue / 100.0)
-            let baseCCT = colorMode == .hsi ? hsiCCT : cctKelvin
-            adjustedCCT = Int(Double(baseCCT) + Double(warmestCCT - baseCCT) * shift)
-            mgr.log("FaultyBulb warmth: i=\(Int(percent))% dip=\(String(format:"%.2f",dipDepth)) shift=\(String(format:"%.2f",shift)) base=\(baseCCT)K warm=\(warmestCCT)K → \(adjustedCCT)K")
-        } else {
-            adjustedCCT = colorMode == .hsi ? hsiCCT : cctKelvin
-        }
-
-        if colorMode == .hsi {
-            mgr.setHSIWithSleep(
-                intensity: percent,
-                hue: hue,
-                saturation: saturation,
-                cctKelvin: adjustedCCT,
-                sleepMode: sleepMode,
-                targetAddress: targetAddress,
-                viaPeripheral: peripheralIdentifier
-            )
-        } else {
-            mgr.setCCTWithSleep(
-                intensity: percent,
-                cctKelvin: adjustedCCT,
-                sleepMode: sleepMode,
-                targetAddress: targetAddress,
-                viaPeripheral: peripheralIdentifier
-            )
-        }
-    }
-
-    /// Build the discrete intensity levels from the range and point count
-    private func discretePoints() -> [Double] {
-        let lo = min(minIntensity, maxIntensity)
-        let hi = max(minIntensity, maxIntensity)
-        let n = max(2, pointCount)
-        if n <= 1 || lo == hi { return [lo] }
-        return (0..<n).map { i in
-            lo + (hi - lo) * Double(i) / Double(n - 1)
-        }
-    }
-
-    /// The main loop: wait for the frequency interval, then fire an event
-    private func scheduleNextEvent() {
-        guard bleManager != nil else { return }
-
-        let freq = Int(frequencyValue)
-        let interval: Double
-
-        if freq >= 10 {
-            // R = random wait each time
-            interval = Double.random(in: 0.08...2.0)
-        } else {
-            // 1-9: exponential curve, 1 = slow ~1.5s, 9 = fast ~0.08s
-            let base = 1.5 * pow(0.65, Double(freq - 1))
-            interval = base * Double.random(in: 0.85...1.15)
-        }
-
-        let work = DispatchWorkItem { [weak self] in
-            self?.fireEvent()
-        }
-        workItem = work
-        queue.asyncAfter(deadline: .now() + interval, execute: work)
-    }
-
-    /// Fire one flicker event: pick a new point and go there (snap or fade).
-    /// The fault bias slider is the primary control — it decides whether the
-    /// bulb dips at all and overrides all other point-selection rules.
-    private func fireEvent() {
-        guard bleManager != nil else { return }
-
-        let points = discretePoints()
-        let hi = points.last ?? 50.0
-        // Log-scaled: slider 0-100 → effective probability 0-1.0
-        // pow(x, 2.5) gives fine control at low values:
-        // slider 5 → 0.006, slider 15 → 0.009, slider 30 → 0.05, slider 50 → 0.18, slider 100 → 1.0
-        let bias = pow(biasValue / 100.0, 2.5)
-
-        // Bias 0 = not faulty at all → always stay at the highest point
-        if bias <= 0 {
-            if abs(currentIntensity - hi) > 0.5 {
-                currentIntensity = hi
-                sendIntensity(hi, sleepMode: 1)
-            }
-            scheduleNextEvent()
-            return
-        }
-
-        let target: Double
-
-        // Are we currently on the high point?
-        let onHigh = abs(currentIntensity - hi) < 0.5
-
-        if onHigh {
-            // Decide whether to dip. Bias controls the probability of dipping.
-            // bias=0.1 → 10% chance to dip, bias=1.0 → 100% chance to dip
-            if Double.random(in: 0...1) < bias {
-                // Dip to a lower point
-                let lowerPoints = points.filter { $0 < hi - 0.5 }
-                target = lowerPoints.randomElement() ?? hi
-            } else {
-                // Stay high — no flicker this cycle
-                scheduleNextEvent()
-                return
-            }
-        } else {
-            // We're on a low point — recovery slider controls how quickly we return to high.
-            // recovery=100 → always return to high (instant recovery)
-            // recovery=0 → stay at low points (elongated dips)
-            let returnChance = 0.10 + 0.90 * pow(recoveryValue / 100.0, 2.0)
-            if Double.random(in: 0...1) < returnChance {
-                target = hi
-            } else {
-                // Stay at a low point — either current or pick another one
-                let lowerPoints = points.filter { $0 < hi - 0.5 }
-                target = lowerPoints.randomElement() ?? hi
-            }
-        }
-
-        let lo = min(minIntensity, maxIntensity)
-
-        if transitionValue < 0.005 {
-            // Instant snap — use sleepMode toggling for hard cut.
-            // Going to the lowest point: sleep=0 (instant off).
-            // Going to any higher point: sleep=1 (on) with that intensity.
-            currentIntensity = target
-            if target <= lo && lo < 1.0 {
-                sendIntensity(0, sleepMode: 0)
-            } else {
-                sendIntensity(target, sleepMode: 1)
-            }
-            scheduleNextEvent()
-        } else {
-            // Fade to target over transition duration (value is already in seconds)
-            let stepInterval: Double = 0.02
-            let totalSteps = max(1, Int(transitionValue / stepInterval))
-            fadeToTarget(target: target, stepsRemaining: totalSteps, stepInterval: stepInterval)
-        }
-    }
-
-    /// Incrementally step toward the target intensity, then schedule next event
-    private func fadeToTarget(target: Double, stepsRemaining: Int, stepInterval: Double) {
-        guard stepsRemaining > 0 else {
-            currentIntensity = target
-            sendIntensity(target, sleepMode: 1)
-            scheduleNextEvent()
-            return
-        }
-
-        let interpolated = currentIntensity + (target - currentIntensity) / Double(stepsRemaining)
-        currentIntensity = interpolated
-        sendIntensity(interpolated, sleepMode: 1)
-
-        let work = DispatchWorkItem { [weak self] in
-            self?.fadeToTarget(target: target, stepsRemaining: stepsRemaining - 1, stepInterval: stepInterval)
-        }
-        workItem = work
-        queue.asyncAfter(deadline: .now() + stepInterval, execute: work)
-    }
-}
-
-// MARK: - Paparazzi Software Engine
-/// Simulates camera flash bursts (paparazzi) in any color mode.
-/// Brief intense flashes at random intervals with occasional double/triple bursts.
-class PaparazziEngine {
-    private var workItem: DispatchWorkItem?
-    private var bleManager: BLEManager?
-    private let queue = DispatchQueue(label: "com.filmlightremote.paparazzi", qos: .userInitiated)
-
-    // Stored parameters
-    private(set) var targetAddress: UInt16 = 0x0002
-    /// The peripheral this engine writes through (set at start time).
-    private(set) var peripheralIdentifier: UUID = UUID()
-    private var colorMode: LightMode = .hsi
-    private var cctKelvin: Int = 5600
-    private var hue: Int = 0
-    private var saturation: Int = 100
-    private var hsiCCT: Int = 5600
-    private var intensity: Double = 100.0
-    private var frequency: Double = 8.0  // 0-15
-
-    func start(bleManager: BLEManager, lightState: LightState, targetAddress: UInt16, peripheralIdentifier: UUID? = nil) {
-        stop()
-        self.bleManager = bleManager
-        self.targetAddress = targetAddress
-        self.peripheralIdentifier = peripheralIdentifier ?? bleManager.connectedPeripheral?.identifier ?? UUID()
-        updateParams(from: lightState)
-        scheduleNextFlash()
-    }
-
-    func stop() {
-        workItem?.cancel()
-        workItem = nil
-        bleManager = nil
-    }
-
-    func updateParams(from lightState: LightState) {
-        colorMode = lightState.paparazziColorMode
-        cctKelvin = Int(lightState.cctKelvin)
-        hue = Int(lightState.hue)
-        saturation = Int(lightState.saturation)
-        hsiCCT = Int(lightState.hsiCCT)
-        intensity = max(lightState.intensity, 10) // Ensure visible flash
-        frequency = lightState.effectFrequency
-    }
-
-    private func scheduleNextFlash() {
-        guard bleManager != nil else { return }
-
-        // Map frequency (0-15) to gap between flashes
-        // frq 0 = slow (~3s gaps), frq 15 = rapid (~0.08s gaps)
-        let baseGap = 3.0 * pow(0.75, frequency)
-        let gap = baseGap * Double.random(in: 0.5...1.5)
-
-        let work = DispatchWorkItem { [weak self] in
-            self?.fireFlash()
-        }
-        workItem = work
-        queue.asyncAfter(deadline: .now() + gap, execute: work)
-    }
-
-    private func fireFlash() {
-        guard bleManager != nil else { return }
-
-        // Flash ON
-        sendColor(intensity: intensity, sleepMode: 1)
-
-        // Flash duration: 30-80ms (brief camera flash)
-        let flashDuration = Double.random(in: 0.03...0.08)
-
-        let work = DispatchWorkItem { [weak self] in
-            guard let self = self, self.bleManager != nil else { return }
-            // Flash OFF
-            self.sendColor(intensity: 0, sleepMode: 0)
-
-            // 30% chance of a quick double flash
-            if Double.random(in: 0...1) < 0.3 {
-                let burstDelay = Double.random(in: 0.05...0.15)
-                let burstWork = DispatchWorkItem { [weak self] in
-                    guard let self = self, self.bleManager != nil else { return }
-                    // Second flash ON
-                    self.sendColor(intensity: self.intensity, sleepMode: 1)
-
-                    let offWork = DispatchWorkItem { [weak self] in
-                        guard let self = self else { return }
-                        self.sendColor(intensity: 0, sleepMode: 0)
-                        self.scheduleNextFlash()
-                    }
-                    self.workItem = offWork
-                    self.queue.asyncAfter(deadline: .now() + flashDuration, execute: offWork)
-                }
-                self.workItem = burstWork
-                self.queue.asyncAfter(deadline: .now() + burstDelay, execute: burstWork)
-            } else {
-                self.scheduleNextFlash()
-            }
-        }
-        workItem = work
-        queue.asyncAfter(deadline: .now() + flashDuration, execute: work)
-    }
-
-    private func sendColor(intensity: Double, sleepMode: Int) {
-        guard let mgr = bleManager else { return }
-        if colorMode == .hsi {
-            mgr.setHSIWithSleep(
-                intensity: intensity,
-                hue: hue,
-                saturation: saturation,
-                cctKelvin: hsiCCT,
-                sleepMode: sleepMode,
-                targetAddress: targetAddress,
-                viaPeripheral: peripheralIdentifier
-            )
-        } else {
-            mgr.setCCTWithSleep(
-                intensity: intensity,
-                cctKelvin: cctKelvin,
-                sleepMode: sleepMode,
-                targetAddress: targetAddress,
-                viaPeripheral: peripheralIdentifier
-            )
-        }
-    }
-}
-
-// MARK: - Generic Software Effect Engine
-/// Simulates lighting effects in HSI mode for lights that don't support native HSI effects.
-/// Each effect type has its own intensity pattern, sent via setHSIWithSleep/setCCTWithSleep.
-class SoftwareEffectEngine {
-    private var workItem: DispatchWorkItem?
-    private var bleManager: BLEManager?
-    private let queue = DispatchQueue(label: "com.filmlightremote.softwareeffect", qos: .userInitiated)
-
-    private(set) var targetAddress: UInt16 = 0x0002
-    /// The peripheral this engine writes through (set at start time).
-    private(set) var peripheralIdentifier: UUID = UUID()
-    private var effectType: LightEffect = .none
-    private var colorMode: LightMode = .hsi
-    private var cctKelvin: Int = 5600
-    private var hue: Int = 0
-    private var saturation: Int = 100
-    private var hsiCCT: Int = 5600
-    private var intensity: Double = 100.0
-    private var frequency: Double = 8.0
-    private var pulsingMin: Double = 0.0
-    private var pulsingMax: Double = 100.0
-    private var pulsingShape: Double = 50.0
-    private var strobeHz: Double = 4.0
-    private var currentIntensity: Double = 0.0
-    private var phaseTime: Double = 0.0 // for pulsing sine wave
-    private var partyColors: [Double] = [0, 60, 120, 180, 240, 300]
-    private var partyColorIndex: Int = 0
-    private var partyTransition: Double = 0.0
-    private var partyHueBias: Double = 0.0
-
-    func start(bleManager: BLEManager, lightState: LightState, targetAddress: UInt16, peripheralIdentifier: UUID? = nil) {
-        stop()
-        self.bleManager = bleManager
-        self.targetAddress = targetAddress
-        self.peripheralIdentifier = peripheralIdentifier ?? bleManager.connectedPeripheral?.identifier ?? UUID()
-        updateParams(from: lightState)
-        currentIntensity = intensity
-        phaseTime = 0
-        // For strobe: start dark, then begin flash loop
-        if effectType == .strobe {
-            sendColor(intensity: 0, sleepMode: 0)
-            strobeRunning = true
-            queue.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-                self?.strobeFlash()
-            }
-            return
-        }
-        fireStep()
-    }
-
-    func stop() {
-        strobeRunning = false
-        workItem?.cancel()
-        workItem = nil
-        bleManager = nil
-    }
-
-    func updateParams(from lightState: LightState) {
-        effectType = lightState.selectedEffect
-        switch effectType {
-        case .strobe: colorMode = lightState.strobeColorMode
-        default: colorMode = lightState.effectColorMode
-        }
-        cctKelvin = Int(lightState.cctKelvin)
-        hue = Int(lightState.hue)
-        saturation = Int(lightState.saturation)
-        hsiCCT = Int(lightState.hsiCCT)
-        intensity = lightState.intensity
-        frequency = lightState.effectFrequency
-        pulsingMin = lightState.pulsingMin
-        pulsingMax = lightState.pulsingMax
-        pulsingShape = lightState.pulsingShape
-        strobeHz = lightState.strobeHz
-        if !lightState.partyColors.isEmpty {
-            partyColors = lightState.partyColors
-            // Reset index if it's out of bounds after colors were removed
-            if partyColorIndex >= partyColors.count {
-                partyColorIndex = 0
-            }
-        }
-        partyTransition = lightState.partyTransition
-        partyHueBias = lightState.partyHueBias
-    }
-
-    private func scheduleNext() {
-        guard bleManager != nil else { return }
-
-        let interval: Double
-        switch effectType {
-        case .candle:
-            // Gentle flicker: slow base, frequency speeds it up
-            interval = 0.15 * pow(0.85, frequency) * Double.random(in: 0.7...1.3)
-        case .fire:
-            // Aggressive flicker: faster
-            interval = 0.10 * pow(0.85, frequency) * Double.random(in: 0.5...1.5)
-        case .tvFlicker:
-            // Random jumps at moderate speed
-            interval = 0.08 * pow(0.85, frequency) * Double.random(in: 0.6...1.4)
-        case .lightning:
-            // Long pauses between flashes
-            let baseGap = 3.0 * pow(0.75, frequency)
-            interval = baseGap * Double.random(in: 0.5...1.5)
-        case .pulsing:
-            // Smooth sine: fixed step rate
-            interval = 0.03
-        case .explosion:
-            // Fast decay steps
-            interval = 0.04
-        case .strobe:
-            // Strobe: full cycle = 1/Hz, this is the OFF half
-            interval = 0.5 / strobeHz
-        case .party:
-            // Color cycling: frequency controls speed
-            interval = 1.5 * pow(0.80, frequency)
-        case .welding:
-            // Bursts with pauses
-            let baseGap = 1.5 * pow(0.80, frequency)
-            interval = baseGap * Double.random(in: 0.3...1.0)
-        default:
-            interval = 0.12 * pow(0.85, frequency) * Double.random(in: 0.7...1.3)
-        }
-
-        let work = DispatchWorkItem { [weak self] in
-            self?.fireStep()
-        }
-        workItem = work
-        queue.asyncAfter(deadline: .now() + interval, execute: work)
-    }
-
-    private func fireStep() {
-        guard bleManager != nil else { return }
-
-        switch effectType {
-        case .candle:
-            // Gentle flicker: 60-100% of base intensity
-            let target = intensity * Double.random(in: 0.60...1.0)
-            currentIntensity = target
-            sendColor(intensity: target, sleepMode: 1)
-            scheduleNext()
-
-        case .fire:
-            // Aggressive flicker: 15-100% with occasional bright bursts
-            let burst = Double.random(in: 0...1) < 0.15
-            let target = burst ? intensity : intensity * Double.random(in: 0.15...0.85)
-            currentIntensity = target
-            sendColor(intensity: target, sleepMode: 1)
-            scheduleNext()
-
-        case .tvFlicker:
-            // Discrete random jumps between levels
-            let levels: [Double] = [0.1, 0.3, 0.5, 0.7, 0.85, 1.0]
-            let target = intensity * (levels.randomElement() ?? 0.5)
-            currentIntensity = target
-            sendColor(intensity: target, sleepMode: 1)
-            scheduleNext()
-
-        case .lightning:
-            // Brief bright flash then off (like paparazzi but single flash)
-            sendColor(intensity: intensity, sleepMode: 1)
-            let flashDuration = Double.random(in: 0.04...0.12)
-            let work = DispatchWorkItem { [weak self] in
-                guard let self = self else { return }
-                self.sendColor(intensity: 0, sleepMode: 0)
-                self.currentIntensity = 0
-                self.scheduleNext()
-            }
-            workItem = work
-            queue.asyncAfter(deadline: .now() + flashDuration, execute: work)
-
-        case .pulsing:
-            // Smooth shaped wave between pulsingMin and pulsingMax
-            let lo = min(pulsingMin, pulsingMax)
-            let hi = max(pulsingMin, pulsingMax)
-            let period = 4.0 * pow(0.80, frequency) // faster at higher freq
-            phaseTime += 0.03
-            let sine = (sin(phaseTime * 2.0 * .pi / period) + 1.0) / 2.0 // 0-1
-            // Shape: 0=bottom-heavy, 50=sine, 100=top-heavy
-            // Logarithmic exponent: 50→1.0, 0→~10, 100→~0.1
-            let normalized = (pulsingShape - 50.0) / 50.0 // -1 to 1
-            let exponent = pow(10.0, -normalized * 0.8) // 0→~6.3, 50→1, 100→~0.16
-            let shaped = pow(sine, exponent)
-            let target = lo + (hi - lo) * shaped
-            currentIntensity = target
-            if target < 1.0 {
-                sendColor(intensity: 0, sleepMode: 0)
-            } else {
-                sendColor(intensity: target, sleepMode: 1)
-            }
-            scheduleNext()
-
-        case .explosion:
-            // Flash then exponential decay
-            if currentIntensity < 5.0 && phaseTime == 0 {
-                // Initial flash
-                currentIntensity = intensity
-                sendColor(intensity: intensity, sleepMode: 1)
-                phaseTime = 1.0
-            } else if phaseTime > 0 {
-                // Decay
-                currentIntensity *= 0.88
-                if currentIntensity < 2.0 {
-                    sendColor(intensity: 0, sleepMode: 0)
-                    currentIntensity = 0
-                    phaseTime = 0
-                    // Wait before next explosion
-                    let gap = 2.0 * pow(0.80, frequency) * Double.random(in: 0.5...1.5)
-                    let work = DispatchWorkItem { [weak self] in
-                        self?.fireStep()
-                    }
-                    workItem = work
-                    queue.asyncAfter(deadline: .now() + gap, execute: work)
-                    return
-                } else {
-                    sendColor(intensity: currentIntensity, sleepMode: 1)
-                }
-            } else {
-                // Trigger new explosion
-                phaseTime = 0
-            }
-            scheduleNext()
-
-        case .strobe:
-            strobeFlash()
-            return
-
-        case .party:
-            // Cycle through user-defined hue list
-            guard !partyColors.isEmpty else { scheduleNext(); return }
-            let currentHue = biasedHue(partyColors[partyColorIndex])
-            let nextIndex = (partyColorIndex + 1) % partyColors.count
-            partyColorIndex = nextIndex
-            sendColor(intensity: intensity, sleepMode: 1, hueOverride: Int(currentHue))
-
-            if partyTransition <= 0 || partyColors.count < 2 {
-                scheduleNext()
-            } else {
-                // Split interval into hold + sweep
-                let totalInterval = 1.5 * pow(0.80, frequency)
-                let transitionFrac = partyTransition / 100.0
-                let holdTime = totalInterval * (1 - transitionFrac)
-                let sweepTime = totalInterval * transitionFrac
-                let nextHue = biasedHue(partyColors[nextIndex])
-
-                let holdWork = DispatchWorkItem { [weak self] in
-                    self?.sweepPartyHue(from: currentHue, to: nextHue, duration: sweepTime)
-                }
-                workItem = holdWork
-                queue.asyncAfter(deadline: .now() + holdTime, execute: holdWork)
-            }
-
-        case .welding:
-            // Bright arc burst then off
-            let burstCount = Int.random(in: 2...5)
-            weldBurst(remaining: burstCount)
-
-        default:
-            // Generic flicker fallback
-            let target = intensity * Double.random(in: 0.3...1.0)
-            currentIntensity = target
-            sendColor(intensity: target, sleepMode: 1)
-            scheduleNext()
-        }
-    }
-
-    private var strobeRunning = false
-
-    private func strobeFlash() {
-        guard bleManager != nil, strobeRunning else { return }
-        let flashDuration = 0.010 // 10ms pop
-        let cyclePeriod = 1.0 / strobeHz
-        let offDuration = max(0.01, cyclePeriod - flashDuration)
-
-        // ON — full intensity
-        sendColor(intensity: intensity, sleepMode: 1)
-        currentIntensity = intensity
-
-        // Schedule OFF after flash duration
-        queue.asyncAfter(deadline: .now() + flashDuration) { [weak self] in
-            guard let self = self, self.strobeRunning, self.bleManager != nil else { return }
-            // OFF — zero intensity
-            self.sendColor(intensity: 0, sleepMode: 0)
-            self.currentIntensity = 0
-
-            // Schedule next flash after off duration
-            self.queue.asyncAfter(deadline: .now() + offDuration) { [weak self] in
-                self?.strobeFlash()
-            }
-        }
-    }
-
-    private func weldBurst(remaining: Int) {
-        guard bleManager != nil, remaining > 0 else {
-            sendColor(intensity: 0, sleepMode: 0)
-            currentIntensity = 0
-            scheduleNext()
-            return
-        }
-        // Arc ON
-        let arcIntensity = intensity * Double.random(in: 0.7...1.0)
-        sendColor(intensity: arcIntensity, sleepMode: 1)
-        let onTime = Double.random(in: 0.02...0.08)
-        let work = DispatchWorkItem { [weak self] in
-            guard let self = self else { return }
-            // Brief off between arcs
-            self.sendColor(intensity: 0, sleepMode: 0)
-            let offTime = Double.random(in: 0.01...0.04)
-            let next = DispatchWorkItem { [weak self] in
-                self?.weldBurst(remaining: remaining - 1)
-            }
-            self.workItem = next
-            self.queue.asyncAfter(deadline: .now() + offTime, execute: next)
-        }
-        workItem = work
-        queue.asyncAfter(deadline: .now() + onTime, execute: work)
-    }
-
-    /// Apply hue bias, wrapping into 0-360
-    private func biasedHue(_ hue: Double) -> Double {
-        var h = hue + partyHueBias
-        h = h.truncatingRemainder(dividingBy: 360)
-        if h < 0 { h += 360 }
-        return h
-    }
-
-    /// Sweep hue from startHue to endHue over duration, taking the shortest path around the wheel
-    private func sweepPartyHue(from startHue: Double, to endHue: Double, duration: Double) {
-        guard bleManager != nil else { return }
-        guard duration > 0.03 else {
-            // Too short to sweep, jump straight to next fireStep
-            fireStep()
-            return
-        }
-
-        let stepInterval: Double = 0.03
-        let totalSteps = max(1, Int(duration / stepInterval))
-
-        // Shortest path around hue wheel
-        var delta = endHue - startHue
-        if delta > 180 { delta -= 360 }
-        if delta < -180 { delta += 360 }
-
-        sweepPartyStep(startHue: startHue, delta: delta, step: 1, totalSteps: totalSteps, stepInterval: stepInterval)
-    }
-
-    private func sweepPartyStep(startHue: Double, delta: Double, step: Int, totalSteps: Int, stepInterval: Double) {
-        guard bleManager != nil else { return }
-        guard step <= totalSteps else {
-            fireStep()
-            return
-        }
-
-        let fraction = Double(step) / Double(totalSteps)
-        var hue = startHue + delta * fraction
-        if hue < 0 { hue += 360 }
-        if hue >= 360 { hue -= 360 }
-
-        sendColor(intensity: intensity, sleepMode: 1, hueOverride: Int(hue))
-
-        let work = DispatchWorkItem { [weak self] in
-            self?.sweepPartyStep(startHue: startHue, delta: delta, step: step + 1, totalSteps: totalSteps, stepInterval: stepInterval)
-        }
-        workItem = work
-        queue.asyncAfter(deadline: .now() + stepInterval, execute: work)
-    }
-
-    private func sendColor(intensity: Double, sleepMode: Int, hueOverride: Int? = nil) {
-        guard let mgr = bleManager else { return }
-        if colorMode == .hsi || hueOverride != nil {
-            mgr.setHSIWithSleep(
-                intensity: intensity,
-                hue: hueOverride ?? hue,
-                saturation: saturation,
-                cctKelvin: hsiCCT,
-                sleepMode: sleepMode,
-                targetAddress: targetAddress,
-                viaPeripheral: peripheralIdentifier
-            )
-        } else {
-            mgr.setCCTWithSleep(
-                intensity: intensity,
-                cctKelvin: cctKelvin,
-                sleepMode: sleepMode,
-                targetAddress: targetAddress,
-                viaPeripheral: peripheralIdentifier
-            )
-        }
-    }
-}

@@ -36,6 +36,7 @@
 		4D5E6F7A8B9C0D1E2F3A4B5C /* CueListDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5F6A7B8C9D0E1F2A3B4C5 /* CueListDetailView.swift */; };
 		5E6F7A8B9C0D1E2F3A4B5C6D /* CueEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F6A7B8C9D0E1F2A3B4C5D6 /* CueEditorView.swift */; };
 		6F7A8B9C0D1E2F3A4B5C6D7E /* CueLightEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6A7B8C9D0E1F2A3B4C5D6E7 /* CueLightEditorView.swift */; };
+		7A8B9C0D1E2F3A4B5C6D7E8F /* BridgeConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B9C0D1E2F3A4B5C6D7E8F9A /* BridgeConnectionView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -53,6 +54,7 @@
 		9AAE3FBEA794C6D7DA1D597D /* LightControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightControlView.swift; sourceTree = "<group>"; };
 		AD8F4D6567CD5F653F4FF720 /* SidusMeshConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidusMeshConfig.swift; sourceTree = "<group>"; };
 		B18F642EB0F7B00AEA977D0B /* SavedLight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedLight.swift; sourceTree = "<group>"; };
+		8B9C0D1E2F3A4B5C6D7E8F9A /* BridgeConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeConnectionView.swift; sourceTree = "<group>"; };
 		BED2B28AB1F4072AC772DDBB /* AddLightFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddLightFlowView.swift; sourceTree = "<group>"; };
 		C12300A661DDD19AB7992487 /* LightState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightState.swift; sourceTree = "<group>"; };
 		D25EB2E3FBCB7C6799D4542F /* SidusProtocols.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidusProtocols.swift; sourceTree = "<group>"; };
@@ -94,6 +96,7 @@
 			isa = PBXGroup;
 			children = (
 				BED2B28AB1F4072AC772DDBB /* AddLightFlowView.swift */,
+				8B9C0D1E2F3A4B5C6D7E8F9A /* BridgeConnectionView.swift */,
 				6460FFFCC181B4F8B9CCDC0D /* ContentView.swift */,
 				E5F6A7B8C9D0E1F2A3B4C5D6 /* CueEditorView.swift */,
 				F6A7B8C9D0E1F2A3B4C5D6E7 /* CueLightEditorView.swift */,
@@ -240,6 +243,7 @@
 			files = (
 				F5C6FF848AAE9ED7FDA235B2 /* AddLightFlowView.swift in Sources */,
 				C09358CAB6C704237479F3FE /* BLEManager.swift in Sources */,
+				7A8B9C0D1E2F3A4B5C6D7E8F /* BridgeConnectionView.swift in Sources */,
 				A1B2C3D4E5F60001BRDG0001 /* BridgeManager.swift in Sources */,
 				5E6F7A8B9C0D1E2F3A4B5C6D /* CueEditorView.swift in Sources */,
 				2B3C4D5E6F7A8B9C0D1E2F3A /* CueEngine.swift in Sources */,

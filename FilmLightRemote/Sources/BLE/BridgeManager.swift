@@ -31,6 +31,14 @@ class BridgeManager: ObservableObject {
     private var reconnectWork: DispatchWorkItem?
     private var pingTimer: Timer?
 
+    private static let lastBridgeHostKey = "lastBridgeHost"
+
+    /// The last successfully connected bridge host, persisted across launches.
+    var lastBridgeHost: String? {
+        get { UserDefaults.standard.string(forKey: Self.lastBridgeHostKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.lastBridgeHostKey) }
+    }
+
     private init() {}
 
     // MARK: - Discovery
@@ -45,11 +53,20 @@ class BridgeManager: ObservableObject {
 
         browser?.browseResultsChangedHandler = { [weak self] results, _ in
             DispatchQueue.main.async {
-                self?.discoveredBridges = results.compactMap { result in
+                guard let self = self else { return }
+                self.discoveredBridges = results.compactMap { result in
                     if case .service(let name, _, _, _) = result.endpoint {
                         return BridgeInfo(name: name, host: name, port: 8765)
                     }
                     return nil
+                }
+                // Auto-connect to remembered bridge if not already connected
+                if !self.isConnected, let remembered = self.lastBridgeHost {
+                    if let match = self.discoveredBridges.first(where: {
+                        $0.name.lowercased().replacingOccurrences(of: " ", with: "") + ".local" == remembered
+                    }) {
+                        self.connectToBridge(match)
+                    }
                 }
             }
         }
@@ -155,6 +172,10 @@ class BridgeManager: ObservableObject {
                 self?.bridgeVersion = json["version"] as? String
                 self?.maxLights = json["max_lights"] as? Int ?? 9
                 self?.lastError = nil
+                // Persist this bridge host for auto-reconnect on next launch
+                if let host = self?.connectedBridgeAddress {
+                    self?.lastBridgeHost = host
+                }
                 print("BridgeManager: bridge ready v\(self?.bridgeVersion ?? "?")")
                 self?.sendKeysAndLights()
 
@@ -217,7 +238,6 @@ class BridgeManager: ObservableObject {
         send([
             "cmd": "add_light",
             "id": light.id.uuidString,
-            "ble_addr": light.peripheralIdentifier.uuidString,
             "unicast": light.unicastAddress,
             "name": light.name
         ])

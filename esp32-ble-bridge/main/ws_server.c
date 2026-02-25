@@ -30,18 +30,6 @@ static void handle_update_effect(cJSON *root);
 static void handle_stop_effect(cJSON *root);
 static void handle_stop_all(void);
 
-// Parse BLE address string "AA:BB:CC:DD:EE:FF" into 6 bytes
-static bool parse_ble_addr(const char *str, uint8_t out[6])
-{
-    if (!str || strlen(str) < 17) return false;
-    unsigned int b[6];
-    if (sscanf(str, "%x:%x:%x:%x:%x:%x", &b[0], &b[1], &b[2], &b[3], &b[4], &b[5]) != 6) {
-        return false;
-    }
-    for (int i = 0; i < 6; i++) out[i] = (uint8_t)b[i];
-    return true;
-}
-
 // Parse hex string into bytes
 static int parse_hex_string(const char *hex, uint8_t *out, int max_len)
 {
@@ -263,23 +251,21 @@ static void handle_set_keys(cJSON *root)
 static void handle_add_light(cJSON *root)
 {
     cJSON *id = cJSON_GetObjectItem(root, "id");
-    cJSON *addr = cJSON_GetObjectItem(root, "ble_addr");
     cJSON *uni = cJSON_GetObjectItem(root, "unicast");
     cJSON *name = cJSON_GetObjectItem(root, "name");
 
-    if (!id || !addr || !uni) {
+    if (!id || !uni) {
         ESP_LOGE(TAG, "add_light: missing fields");
         return;
     }
 
-    uint8_t ble_addr[6];
-    if (!parse_ble_addr(addr->valuestring, ble_addr)) {
-        ESP_LOGE(TAG, "add_light: invalid BLE address: %s", addr->valuestring);
-        return;
-    }
-
-    light_registry_add(id->valuestring, ble_addr, (uint16_t)uni->valueint,
+    light_registry_add(id->valuestring, (uint16_t)uni->valueint,
                        name ? name->valuestring : "");
+
+    // If proxy is already connected, immediately mark this light as reachable
+    if (ble_mesh_is_proxy_connected()) {
+        ws_server_notify_light_status((uint16_t)uni->valueint, true);
+    }
 }
 
 static void handle_connect(cJSON *root)
@@ -288,21 +274,30 @@ static void handle_connect(cJSON *root)
     if (!uni) return;
 
     uint16_t unicast = (uint16_t)uni->valueint;
+
+    // Register the light if not already known
     light_entry_t *light = light_registry_find_by_unicast(unicast);
     if (!light) {
-        ESP_LOGE(TAG, "connect: light 0x%04X not registered", unicast);
-        ws_server_notify_error("Light not registered");
-        return;
+        // Auto-register with a placeholder id
+        char auto_id[32];
+        snprintf(auto_id, sizeof(auto_id), "auto-%04X", unicast);
+        light = light_registry_add(auto_id, unicast, "");
+        if (!light) {
+            ws_server_notify_error("Failed to register light");
+            return;
+        }
     }
 
-    if (light->connected) {
-        ESP_LOGI(TAG, "connect: light 0x%04X already connected", unicast);
+    // If proxy is already connected, all lights are reachable
+    if (ble_mesh_is_proxy_connected()) {
+        light->connected = true;
         ws_server_notify_light_status(unicast, true);
         return;
     }
 
-    ESP_LOGI(TAG, "Connecting to light 0x%04X...", unicast);
-    ble_mesh_connect(light->ble_addr);
+    // Connect to any mesh proxy node — once connected, all lights are reachable
+    ESP_LOGI(TAG, "Connecting to mesh proxy for light 0x%04X...", unicast);
+    ble_mesh_connect_proxy();
 }
 
 static void handle_disconnect(cJSON *root)
@@ -317,7 +312,7 @@ static void handle_disconnect(cJSON *root)
     // Stop any running effect
     effect_engine_stop(unicast);
 
-    ble_mesh_disconnect(light->gattc_conn_id);
+    // Mark this light as disconnected (proxy stays up for other lights)
     light->connected = false;
     ws_server_notify_light_status(unicast, false);
 }
@@ -460,15 +455,4 @@ static void handle_stop_effect(cJSON *root)
 static void handle_stop_all(void)
 {
     effect_engine_stop_all();
-
-    // Disconnect all lights
-    int count;
-    light_entry_t *all = light_registry_get_all(&count);
-    for (int i = 0; i < count; i++) {
-        if (all[i].registered && all[i].connected) {
-            ble_mesh_disconnect(all[i].gattc_conn_id);
-            all[i].connected = false;
-            ws_server_notify_light_status(all[i].unicast, false);
-        }
-    }
 }
