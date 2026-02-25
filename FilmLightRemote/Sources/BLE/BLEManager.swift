@@ -292,59 +292,7 @@ class BLEManager: NSObject, ObservableObject {
         cleanup()
     }
 
-    // MARK: - Command Methods (Placeholders - implement after protocol analysis)
-
-    func sendCommand(_ data: Data) {
-        guard let characteristic = controlCharacteristic else {
-            log("Error: Control characteristic not available")
-            return
-        }
-
-        guard let peripheral = connectedPeripheral else {
-            log("Error: Not connected to peripheral")
-            return
-        }
-
-        log("Sending to \(characteristic.uuid): \(data.hexString)")
-
-        // Use writeWithoutResponse if supported, otherwise use withResponse
-        let writeType: CBCharacteristicWriteType
-        if characteristic.properties.contains(.writeWithoutResponse) {
-            writeType = .withoutResponse
-            log("  Using writeWithoutResponse")
-        } else {
-            writeType = .withResponse
-            log("  Using writeWithResponse")
-        }
-
-        peripheral.writeValue(data, for: characteristic, type: writeType)
-    }
-
-    /// Try sending to all writable characteristics (for debugging)
-    func sendToAllWritable(_ data: Data) {
-        guard let peripheral = connectedPeripheral,
-              let services = peripheral.services else {
-            log("Error: No services available")
-            return
-        }
-
-        log("Sending to ALL writable characteristics: \(data.hexString)")
-
-        for service in services {
-            guard let characteristics = service.characteristics else { continue }
-            for char in characteristics {
-                if char.properties.contains(.writeWithoutResponse) {
-                    peripheral.writeValue(data, for: char, type: .withoutResponse)
-                    log("  Sent to \(char.uuid) (writeWithoutResponse)")
-                } else if char.properties.contains(.write) {
-                    peripheral.writeValue(data, for: char, type: .withResponse)
-                    log("  Sent to \(char.uuid) (write)")
-                }
-            }
-        }
-    }
-
-    // MARK: - Light Control Commands (using Sidus Protocol)
+    // MARK: - Light Control Commands (using Sidus Protocol via Bridge)
 
     /// Current light state (stored for combined commands like power on/off)
     private(set) var currentIntensity: Int = 50
@@ -366,22 +314,6 @@ class BLEManager: NSObject, ObservableObject {
         currentIntensity = Int(percent)
         currentMode = "cct"
         bridgeManager.setCCT(unicast: targetUnicastAddress, intensity: percent, cctKelvin: currentCCT, sleepMode: 1)
-    }
-
-    /// Write a mesh PDU through a specific peripheral connection, or fall back to connectedPeripheral.
-    func writeMesh(accessMessage: [UInt8], dst: UInt16, viaPeripheral peripheralId: UUID? = nil) {
-        let conn: PeripheralConnection?
-        if let id = peripheralId, let registered = peripheralConnections[id] {
-            conn = registered
-        } else if let cp = connectedPeripheral, let mp = meshProxyIn {
-            conn = PeripheralConnection(peripheral: cp, meshProxyIn: mp)
-        } else {
-            conn = nil
-        }
-        guard let c = conn else { return }
-        if let meshPDU = MeshCrypto.createStandardMeshPDU(accessMessage: accessMessage, dst: dst) {
-            c.peripheral.writeValue(meshPDU, for: c.meshProxyIn, type: .withoutResponse)
-        }
     }
 
     /// Set CCT with explicit values and sleepMode control for instant on/off transitions.
@@ -938,40 +870,6 @@ extension BLEManager: CBPeripheralDelegate {
                         }
                     }
                 }
-            }
-        }
-    }
-
-    /// Send initialization sequence from captured Sidus Link traffic
-    private func sendInitSequence() {
-        guard let peripheral = connectedPeripheral else { return }
-
-        log("Sending init sequence (from Sidus capture)...")
-
-        // From packet capture - these are the exact init commands Sidus sends
-        let initCommands: [Data] = [
-            Data([0x01]),                    // ON
-            Data([0x00]),                    // OFF
-            Data([0xFF]),                    // Full brightness
-            Data([0x01, 0x00]),              // Status?
-            Data([0x01, 0xFF]),              // On + full?
-            Data([0xF0, 0x01, 0x00, 0x00]),  // Init command from capture
-            Data([0xF0, 0x00, 0x00, 0x00]),  // Another init command
-        ]
-
-        // Send to FF02
-        if let char = controlCharacteristic {
-            for cmd in initCommands {
-                peripheral.writeValue(cmd, for: char, type: .withoutResponse)
-                log("  FF02 init <- \(cmd.hexString)")
-            }
-        }
-
-        // Send to 7FCB
-        if let char = char7FCB {
-            for cmd in initCommands {
-                peripheral.writeValue(cmd, for: char, type: .withoutResponse)
-                log("  7FCB init <- \(cmd.hexString)")
             }
         }
     }

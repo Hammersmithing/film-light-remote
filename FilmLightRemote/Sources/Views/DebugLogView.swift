@@ -3,7 +3,6 @@ import SwiftUI
 struct DebugLogView: View {
     @EnvironmentObject var bleManager: BLEManager
     @Environment(\.dismiss) var dismiss
-    @State private var commandInput = ""
     @State private var scrollToBottom = true
 
     var body: some View {
@@ -38,26 +37,8 @@ struct DebugLogView: View {
                         }
                     }
                 }
-
-                // Command input for sending raw hex
-                if bleManager.connectedLight != nil {
-                    HStack {
-                        TextField("Hex command (e.g., 01 02 03)", text: $commandInput)
-                            .font(.system(.body, design: .monospaced))
-                            .textFieldStyle(.roundedBorder)
-                            .autocapitalization(.none)
-                            .autocorrectionDisabled()
-
-                        Button("Send") {
-                            sendCommand()
-                        }
-                        .disabled(commandInput.isEmpty)
-                    }
-                    .padding()
-                    .background(Color(.systemGray6))
-                }
             }
-            .navigationTitle("BLE Debug Log")
+            .navigationTitle("Debug Log")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(content: toolbarContent)
         }
@@ -112,15 +93,6 @@ struct DebugLogView: View {
             return .yellow
         }
         return .white
-    }
-
-    private func sendCommand() {
-        guard let data = Data(hexString: commandInput) else {
-            bleManager.debugLog.append("[ERROR] Invalid hex string: \(commandInput)")
-            return
-        }
-        bleManager.sendCommand(data)
-        commandInput = ""
     }
 
     private func copyLogToClipboard() {
