@@ -9,6 +9,8 @@ struct ContentView: View {
             TabView {
                 MyLightsView()
                     .tabItem { Label("Lights", systemImage: "lightbulb.2") }
+                GroupsView()
+                    .tabItem { Label("Groups", systemImage: "rectangle.3.group") }
                 CuesView()
                     .tabItem { Label("Cues", systemImage: "list.number") }
             }

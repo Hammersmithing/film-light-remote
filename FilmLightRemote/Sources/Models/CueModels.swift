@@ -207,4 +207,125 @@ struct CueState: Codable {
             return effect?.name ?? "FX"
         }
     }
+
+    var shortSummary: String {
+        let m = LightMode(rawValue: mode) ?? .cct
+        switch m {
+        case .cct:
+            return "\(Int(intensity))% \(Int(cctKelvin))K"
+        case .hsi:
+            return "H\(Int(hue)) \(Int(intensity))%"
+        case .effects:
+            return LightEffect(rawValue: effectId)?.name ?? "FX"
+        }
+    }
+}
+
+// MARK: - Beat Mode Types
+
+enum TimelineMode: String, Codable {
+    case seconds
+    case beats
+}
+
+struct TimeSignature: Codable, Equatable {
+    var beatsPerBar: Int
+    var beatUnit: Int
+
+    /// Quarter notes per bar (e.g. 4/4 → 4, 3/4 → 3, 6/8 → 3)
+    var quarterNotesPerBar: Double {
+        Double(beatsPerBar) * (4.0 / Double(beatUnit))
+    }
+
+    var displayString: String {
+        "\(beatsPerBar)/\(beatUnit)"
+    }
+
+    static let common = TimeSignature(beatsPerBar: 4, beatUnit: 4)
+}
+
+struct TempoEvent: Identifiable, Codable, Equatable {
+    let id: UUID
+    var beatPosition: Double   // quarter notes from timeline start
+    var bpm: Double
+    var timeSignature: TimeSignature
+
+    init(id: UUID = UUID(), beatPosition: Double = 0, bpm: Double = 120, timeSignature: TimeSignature = .common) {
+        self.id = id
+        self.beatPosition = beatPosition
+        self.bpm = bpm
+        self.timeSignature = timeSignature
+    }
+}
+
+// MARK: - Timeline
+
+struct Timeline: Identifiable, Codable {
+    let id: UUID
+    var name: String
+    var tracks: [TimelineTrack]
+    var totalDuration: Double
+    var audioFileName: String?
+    var audioFileId: String?
+
+    // Beat mode fields (all optional for backward compat)
+    var mode: TimelineMode?
+    var totalBeats: Double?
+    var tempoEvents: [TempoEvent]?
+    var metronomeEnabled: Bool?
+
+    var effectiveMode: TimelineMode { mode ?? .seconds }
+
+    var effectiveTempoEvents: [TempoEvent] {
+        guard let events = tempoEvents, !events.isEmpty else {
+            return [TempoEvent()]  // default 120 BPM 4/4
+        }
+        return events.sorted { $0.beatPosition < $1.beatPosition }
+    }
+
+    init(id: UUID = UUID(), name: String = "New Timeline", tracks: [TimelineTrack] = [], totalDuration: Double = 30,
+         audioFileName: String? = nil, audioFileId: String? = nil,
+         mode: TimelineMode? = nil, totalBeats: Double? = nil,
+         tempoEvents: [TempoEvent]? = nil, metronomeEnabled: Bool? = nil) {
+        self.id = id
+        self.name = name
+        self.tracks = tracks
+        self.totalDuration = totalDuration
+        self.audioFileName = audioFileName
+        self.audioFileId = audioFileId
+        self.mode = mode
+        self.totalBeats = totalBeats
+        self.tempoEvents = tempoEvents
+        self.metronomeEnabled = metronomeEnabled
+    }
+}
+
+struct TimelineTrack: Identifiable, Codable {
+    let id: UUID
+    var lightId: UUID
+    var lightName: String
+    var unicastAddress: UInt16
+    var blocks: [TimelineBlock]
+
+    init(id: UUID = UUID(), lightId: UUID, lightName: String, unicastAddress: UInt16, blocks: [TimelineBlock] = []) {
+        self.id = id
+        self.lightId = lightId
+        self.lightName = lightName
+        self.unicastAddress = unicastAddress
+        self.blocks = blocks
+    }
+}
+
+struct TimelineBlock: Identifiable, Codable {
+    let id: UUID
+    var startTime: Double
+    var duration: Double
+    var state: CueState
+
+    init(id: UUID = UUID(), startTime: Double = 0, duration: Double = 2, state: CueState = CueState()) {
+        self.id = id
+        self.startTime = startTime
+        self.duration = duration
+        self.state = state
+    }
 }

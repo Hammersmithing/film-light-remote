@@ -4,23 +4,39 @@ import SwiftUI
 struct CuesView: View {
     @EnvironmentObject var bleManager: BLEManager
     @State private var cueLists: [CueList] = []
+    @State private var timelines: [Timeline] = []
     @State private var renamingList: CueList?
     @State private var renameText = ""
+    @State private var renamingTimeline: Timeline?
+    @State private var renameTimelineText = ""
+    @State private var selectedTab = 0
 
     var body: some View {
         NavigationStack {
-            Group {
-                if cueLists.isEmpty {
-                    emptyState
+            VStack(spacing: 0) {
+                Picker("", selection: $selectedTab) {
+                    Text("Cue Lists").tag(0)
+                    Text("Timelines").tag(1)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+
+                if selectedTab == 0 {
+                    cueListsContent
                 } else {
-                    listContent
+                    timelinesContent
                 }
             }
             .navigationTitle("Cues")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
-                        addCueList()
+                        if selectedTab == 0 {
+                            addCueList()
+                        } else {
+                            addTimeline()
+                        }
                     } label: {
                         Image(systemName: "plus")
                     }
@@ -41,8 +57,50 @@ struct CuesView: View {
                     renamingList = nil
                 }
             }
+            .alert("Rename Timeline", isPresented: Binding(
+                get: { renamingTimeline != nil },
+                set: { if !$0 { renamingTimeline = nil } }
+            )) {
+                TextField("Name", text: $renameTimelineText)
+                Button("Cancel", role: .cancel) { renamingTimeline = nil }
+                Button("Save") {
+                    if var tl = renamingTimeline {
+                        tl.name = renameTimelineText
+                        KeyStorage.shared.updateTimeline(tl)
+                        reloadTimelines()
+                    }
+                    renamingTimeline = nil
+                }
+            }
         }
-        .onAppear { reloadLists() }
+        .onAppear {
+            reloadLists()
+            reloadTimelines()
+        }
+    }
+
+    // MARK: - Cue Lists Content
+
+    private var cueListsContent: some View {
+        Group {
+            if cueLists.isEmpty {
+                emptyState
+            } else {
+                listContent
+            }
+        }
+    }
+
+    // MARK: - Timelines Content
+
+    private var timelinesContent: some View {
+        Group {
+            if timelines.isEmpty {
+                timelinesEmptyState
+            } else {
+                timelinesListContent
+            }
+        }
     }
 
     // MARK: - Empty State
@@ -63,6 +121,32 @@ struct CuesView: View {
                 .padding(.horizontal, 40)
             Button("Create Cue List") {
                 addCueList()
+            }
+            .padding(.horizontal, 40)
+            .padding(.vertical, 12)
+            .background(Color.accentColor)
+            .foregroundColor(.white)
+            .cornerRadius(10)
+            Spacer()
+        }
+    }
+
+    private var timelinesEmptyState: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: "timeline.selection")
+                .font(.system(size: 50))
+                .foregroundColor(.secondary)
+            Text("No Timelines")
+                .font(.title3)
+                .fontWeight(.semibold)
+            Text("Create a timeline to place light cues on a visual time axis.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            Button("Create Timeline") {
+                addTimeline()
             }
             .padding(.horizontal, 40)
             .padding(.vertical, 12)
@@ -107,6 +191,38 @@ struct CuesView: View {
         }
     }
 
+    private var timelinesListContent: some View {
+        List {
+            ForEach(timelines) { tl in
+                NavigationLink(destination: TimelineView(timeline: tl, onUpdate: reloadTimelines)) {
+                    TimelineRow(timeline: tl)
+                }
+                .contextMenu {
+                    Button {
+                        renameTimelineText = tl.name
+                        renamingTimeline = tl
+                    } label: {
+                        Label("Rename", systemImage: "pencil")
+                    }
+                    Button(role: .destructive) {
+                        KeyStorage.shared.removeTimeline(tl)
+                        reloadTimelines()
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                }
+                .swipeActions(edge: .trailing) {
+                    Button(role: .destructive) {
+                        KeyStorage.shared.removeTimeline(tl)
+                        reloadTimelines()
+                    } label: {
+                        Label("Delete", systemImage: "trash")
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - Actions
 
     private func addCueList() {
@@ -115,8 +231,18 @@ struct CuesView: View {
         reloadLists()
     }
 
+    private func addTimeline() {
+        let tl = Timeline()
+        KeyStorage.shared.addTimeline(tl)
+        reloadTimelines()
+    }
+
     private func reloadLists() {
         cueLists = KeyStorage.shared.cueLists
+    }
+
+    private func reloadTimelines() {
+        timelines = KeyStorage.shared.timelines
     }
 }
 
@@ -133,6 +259,27 @@ private struct CueListRow: View {
             Text("\(cueList.cues.count) cue\(cueList.cues.count == 1 ? "" : "s")")
                 .font(.caption)
                 .foregroundColor(.secondary)
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Timeline Row
+
+private struct TimelineRow: View {
+    let timeline: Timeline
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(timeline.name)
+                .font(.body)
+                .fontWeight(.medium)
+            HStack(spacing: 8) {
+                Text("\(timeline.tracks.count) track\(timeline.tracks.count == 1 ? "" : "s")")
+                Text("\(Int(timeline.totalDuration))s")
+            }
+            .font(.caption)
+            .foregroundColor(.secondary)
         }
         .padding(.vertical, 4)
     }

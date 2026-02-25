@@ -37,6 +37,13 @@
 		5E6F7A8B9C0D1E2F3A4B5C6D /* CueEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F6A7B8C9D0E1F2A3B4C5D6 /* CueEditorView.swift */; };
 		6F7A8B9C0D1E2F3A4B5C6D7E /* CueLightEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6A7B8C9D0E1F2A3B4C5D6E7 /* CueLightEditorView.swift */; };
 		7A8B9C0D1E2F3A4B5C6D7E8F /* BridgeConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B9C0D1E2F3A4B5C6D7E8F9A /* BridgeConnectionView.swift */; };
+		AA1100001111000011110001 /* TimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1100001111000011110002 /* TimelineView.swift */; };
+		AA2200002222000022220001 /* TimelineEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2200002222000022220002 /* TimelineEngine.swift */; };
+		AA3300003333000033330001 /* MetronomeEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA3300003333000033330002 /* MetronomeEngine.swift */; };
+		AA4400004444000044440001 /* TempoMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA4400004444000044440002 /* TempoMap.swift */; };
+		AA5500005555000055550001 /* GroupsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA5500005555000055550002 /* GroupsView.swift */; };
+		AA6600006666000066660001 /* GroupSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA6600006666000066660002 /* GroupSessionView.swift */; };
+		AA7700007777000077770001 /* SlotBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA7700007777000077770002 /* SlotBarView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -70,6 +77,13 @@
 		D4E5F6A7B8C9D0E1F2A3B4C5 /* CueListDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueListDetailView.swift; sourceTree = "<group>"; };
 		E5F6A7B8C9D0E1F2A3B4C5D6 /* CueEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueEditorView.swift; sourceTree = "<group>"; };
 		F6A7B8C9D0E1F2A3B4C5D6E7 /* CueLightEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueLightEditorView.swift; sourceTree = "<group>"; };
+		AA1100001111000011110002 /* TimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineView.swift; sourceTree = "<group>"; };
+		AA2200002222000022220002 /* TimelineEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineEngine.swift; sourceTree = "<group>"; };
+		AA3300003333000033330002 /* MetronomeEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetronomeEngine.swift; sourceTree = "<group>"; };
+		AA4400004444000044440002 /* TempoMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TempoMap.swift; sourceTree = "<group>"; };
+		AA5500005555000055550002 /* GroupsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupsView.swift; sourceTree = "<group>"; };
+		AA6600006666000066660002 /* GroupSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupSessionView.swift; sourceTree = "<group>"; };
+		AA7700007777000077770002 /* SlotBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlotBarView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -103,11 +117,15 @@
 				D4E5F6A7B8C9D0E1F2A3B4C5 /* CueListDetailView.swift */,
 				C3D4E5F6A7B8C9D0E1F2A3B4 /* CuesView.swift */,
 				5E0AD22691AC13AA834B0487 /* DebugLogView.swift */,
+				AA6600006666000066660002 /* GroupSessionView.swift */,
+				AA5500005555000055550002 /* GroupsView.swift */,
 				9AAE3FBEA794C6D7DA1D597D /* LightControlView.swift */,
 				E6813B950AB3CC3D52353986 /* LightSessionView.swift */,
 				DE57E401E0866863DC5B1146 /* MyLightsView.swift */,
 				D61846E9A4C95FB19D8F15C6 /* ProvisioningView.swift */,
 				7516003A19D055B376461731 /* ScannerView.swift */,
+				AA7700007777000077770002 /* SlotBarView.swift */,
+				AA1100001111000011110002 /* TimelineView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -131,12 +149,14 @@
 				1B5A689371BF2929D94096E9 /* KeyStorage.swift */,
 				F0B2D3A837E5C066289669C3 /* MeshConfigManager.swift */,
 				992513CD5F1FAA9B84055887 /* MeshCrypto.swift */,
+				AA3300003333000033330002 /* MetronomeEngine.swift */,
 				068ECC53454507BE5CBCC478 /* ProvisioningCrypto.swift */,
 				2B4559D072EE93D28896EEFC /* ProvisioningManager.swift */,
 				8977D6B232922EA4FE6BF488 /* ProvisioningPDU.swift */,
 				AD8F4D6567CD5F653F4FF720 /* SidusMeshConfig.swift */,
-
 				D25EB2E3FBCB7C6799D4542F /* SidusProtocols.swift */,
+				AA4400004444000044440002 /* TempoMap.swift */,
+				AA2200002222000022220002 /* TimelineEngine.swift */,
 			);
 			path = BLE;
 			sourceTree = "<group>";
@@ -270,6 +290,13 @@
 				906941AABFDCB09F3F60EE54 /* SidusMeshConfig.swift in Sources */,
 
 				9F4E8D7B81AF8C471777253E /* SidusProtocols.swift in Sources */,
+				AA1100001111000011110001 /* TimelineView.swift in Sources */,
+				AA2200002222000022220001 /* TimelineEngine.swift in Sources */,
+				AA3300003333000033330001 /* MetronomeEngine.swift in Sources */,
+				AA4400004444000044440001 /* TempoMap.swift in Sources */,
+				AA5500005555000055550001 /* GroupsView.swift in Sources */,
+				AA6600006666000066660001 /* GroupSessionView.swift in Sources */,
+				AA7700007777000077770001 /* SlotBarView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

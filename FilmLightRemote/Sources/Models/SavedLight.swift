@@ -28,3 +28,16 @@ struct SavedLight: Codable, Identifiable {
         self.peripheralIdentifier = peripheralIdentifier
     }
 }
+
+/// A named group of lights for quick access during a session
+struct LightGroup: Codable, Identifiable {
+    let id: UUID
+    var name: String
+    var lightIds: [UUID]   // references SavedLight.id
+
+    init(id: UUID = UUID(), name: String, lightIds: [UUID] = []) {
+        self.id = id
+        self.name = name
+        self.lightIds = lightIds
+    }
+}
