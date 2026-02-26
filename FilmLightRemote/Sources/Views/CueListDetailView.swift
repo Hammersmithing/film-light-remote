@@ -2,17 +2,15 @@ import SwiftUI
 
 /// QLab-style cue runner — shows cues in a list with a big GO button.
 ///
-/// Connection strategy: BLE mesh means we only need ONE proxy connection to
-/// address ANY light by unicast. On appear, we auto-connect to the first
-/// available saved light to establish that proxy. All cue commands route
-/// through it to different unicast addresses.
+/// Connection strategy: All commands route through the ESP32 bridge via WebSocket.
+/// The bridge handles BLE connections to individual lights.
 struct CueListDetailView: View {
     @EnvironmentObject var bleManager: BLEManager
+    @ObservedObject private var bridgeManager = BridgeManager.shared
     @StateObject private var engine = CueEngine()
     @State private var cueList: CueList
     @State private var showingAddCue = false
     @State private var editingCue: Cue?
-    @State private var isConnecting = false
     var onUpdate: () -> Void
 
     init(cueList: CueList, onUpdate: @escaping () -> Void) {
@@ -21,7 +19,7 @@ struct CueListDetailView: View {
     }
 
     private var isConnected: Bool {
-        bleManager.connectedPeripheral != nil
+        bridgeManager.isConnected
     }
 
     var body: some View {
@@ -43,16 +41,23 @@ struct CueListDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button { addCue() } label: {
-                    Image(systemName: "plus")
+                Menu {
+                    Button {
+                        addCue()
+                    } label: {
+                        Label("Add Cue", systemImage: "plus")
+                    }
+                    Button {
+                        engine.reset()
+                    } label: {
+                        Label("Reset to Top", systemImage: "arrow.counterclockwise")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
                 }
             }
         }
-        .sheet(item: $editingCue, onDismiss: {
-            // Reconnect to mesh proxy after editing — the light editor may have
-            // connected directly to individual lights for live preview
-            connectToMeshProxy()
-        }) { cue in
+        .sheet(item: $editingCue) { cue in
             NavigationStack {
                 CueEditorView(cue: cue) { updatedCue in
                     if let idx = cueList.cues.firstIndex(where: { $0.id == updatedCue.id }) {
@@ -65,22 +70,6 @@ struct CueListDetailView: View {
         }
         .onAppear {
             engine.bleManager = bleManager
-            // Auto-connect to mesh proxy if not already connected
-            if !isConnected {
-                connectToMeshProxy()
-            }
-        }
-        .onReceive(bleManager.$connectionState) { state in
-            switch state {
-            case .ready, .connected:
-                isConnecting = false
-            case .failed:
-                isConnecting = false
-            case .disconnected:
-                isConnecting = false
-            default:
-                break
-            }
         }
     }
 
@@ -88,33 +77,20 @@ struct CueListDetailView: View {
 
     private var connectionBanner: some View {
         HStack(spacing: 6) {
-            if isConnecting {
-                ProgressView()
-                    .scaleEffect(0.7)
-                Text("Connecting to mesh...")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            } else if isConnected {
+            if isConnected {
                 Circle()
                     .fill(Color.green)
                     .frame(width: 8, height: 8)
-                Text("Mesh proxy connected")
+                Text("Bridge connected")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             } else {
                 Circle()
                     .fill(Color.red)
                     .frame(width: 8, height: 8)
-                Text("Not connected")
+                Text("Bridge not connected")
                     .font(.caption2)
                     .foregroundColor(.secondary)
-                Spacer()
-                Button("Connect") {
-                    connectToMeshProxy()
-                }
-                .font(.caption2)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.mini)
             }
             Spacer()
         }
@@ -170,38 +146,34 @@ struct CueListDetailView: View {
         .listStyle(.plain)
     }
 
-    // MARK: - GO / Stop Buttons
+    // MARK: - GO / Stop / Reset Buttons
 
     private var goButton: some View {
-        HStack(spacing: 12) {
-            // Stop / Reset button — changes based on state
-            if engine.isRunning {
+        VStack(spacing: 8) {
+            HStack(spacing: 12) {
                 Button {
                     engine.stop()
                 } label: {
-                    Image(systemName: "stop.fill")
-                        .font(.system(size: 24, weight: .bold))
-                        .frame(width: 64)
-                        .padding(.vertical, 20)
+                    Label("Stop", systemImage: "stop.fill")
+                        .font(.system(size: 17, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
                         .background(Color.red)
                         .foregroundColor(.white)
-                        .cornerRadius(16)
+                        .cornerRadius(12)
                 }
-            } else if engine.currentCueIndex > 0 {
                 Button {
                     engine.reset()
                 } label: {
-                    Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 24, weight: .bold))
-                        .frame(width: 64)
-                        .padding(.vertical, 20)
+                    Label("Reset", systemImage: "arrow.counterclockwise")
+                        .font(.system(size: 17, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
                         .background(Color.orange)
                         .foregroundColor(.white)
-                        .cornerRadius(16)
+                        .cornerRadius(12)
                 }
             }
-
-            // GO button
             Button {
                 fireCue()
             } label: {
@@ -215,8 +187,6 @@ struct CueListDetailView: View {
             }
             .disabled(cueList.cues.isEmpty || !isConnected)
         }
-        .animation(.easeInOut(duration: 0.2), value: engine.isRunning)
-        .animation(.easeInOut(duration: 0.2), value: engine.currentCueIndex)
         .padding()
     }
 
@@ -242,23 +212,6 @@ struct CueListDetailView: View {
     private func saveCueList() {
         KeyStorage.shared.updateCueList(cueList)
         onUpdate()
-    }
-
-    /// Connect to the first available saved light as a mesh proxy.
-    /// Any single mesh node can relay commands to all other nodes.
-    private func connectToMeshProxy() {
-        // Prefer lights that are in this cue list's cues
-        let cueListLightIds = Set(cueList.cues.flatMap { $0.lightEntries.map(\.lightId) })
-        let savedLights = KeyStorage.shared.savedLights
-
-        // Try cue-referenced lights first, then any saved light
-        let preferred = savedLights.filter { cueListLightIds.contains($0.id) }
-        let candidates = preferred.isEmpty ? savedLights : preferred
-
-        guard let proxy = candidates.first else { return }
-
-        isConnecting = true
-        bleManager.connectToKnownPeripheral(identifier: proxy.peripheralIdentifier)
     }
 }
 

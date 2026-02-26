@@ -8,6 +8,12 @@
 	</array>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>This app uses Bluetooth to control your film lights.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>This app connects to your ESP32 bridge on the local network to control lights.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_filmlightbridge._tcp</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>CFBundleDevelopmentRegion</key>

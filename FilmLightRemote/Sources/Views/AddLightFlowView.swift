@@ -439,6 +439,7 @@ struct AddLightFlowView: View {
             peripheralIdentifier: light.peripheral.identifier
         )
         KeyStorage.shared.addSavedLight(saved)
+        BridgeManager.shared.addLight(saved)
         onComplete()
         step = .complete
     }

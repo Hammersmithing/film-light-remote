@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MyLightsView: View {
     @EnvironmentObject var bleManager: BLEManager
+    @ObservedObject private var bridgeManager = BridgeManager.shared
     @State private var savedLights: [SavedLight] = []
     @State private var showingAddLight = false
     @State private var showingDebugLog = false
@@ -119,10 +120,11 @@ struct MyLightsView: View {
     private var lightsList: some View {
         List {
             ForEach(savedLights) { light in
+                let lightConnected = bridgeManager.lightStatuses[light.unicastAddress] == true
                 Button {
                     selectedLight = light
                 } label: {
-                    LightRow(light: light, onRename: {
+                    LightRow(light: light, isConnected: lightConnected, onRename: {
                         renameText = light.name
                         renamingLight = light
                     }, onDelete: {
@@ -131,6 +133,7 @@ struct MyLightsView: View {
                     })
                 }
                 .tint(.primary)
+                .disabled(!bridgeManager.isConnected)
             }
         }
     }
@@ -147,6 +150,7 @@ struct MyLightsView: View {
 
 private struct LightRow: View {
     let light: SavedLight
+    let isConnected: Bool
     var onRename: () -> Void
     var onDelete: () -> Void
 
@@ -154,7 +158,7 @@ private struct LightRow: View {
         HStack(spacing: 14) {
             Image(systemName: "lightbulb.fill")
                 .font(.title2)
-                .foregroundColor(.yellow)
+                .foregroundColor(isConnected ? .yellow : .gray)
                 .frame(width: 36)
 
             VStack(alignment: .leading, spacing: 3) {

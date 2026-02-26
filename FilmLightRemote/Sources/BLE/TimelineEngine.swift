@@ -18,7 +18,6 @@ class TimelineEngine: ObservableObject {
     private var firedBlockIds: Set<UUID> = []
     private var endedBlockIds: Set<UUID> = []
 
-    private var connectionSub: AnyCancellable?
     private var audioPlayer: AVAudioPlayer?
 
     /// LightState instances kept alive for software effect engines.
@@ -86,8 +85,6 @@ class TimelineEngine: ObservableObject {
         isPlaying = false
         audioPlayer?.stop()
         audioPlayer = nil
-        connectionSub?.cancel()
-        connectionSub = nil
         bleManager?.stopEffect()
         activeEffectStates.removeAll()
         metronome.stop()
@@ -177,52 +174,10 @@ class TimelineEngine: ObservableObject {
     // MARK: - Fire Blocks
 
     private func fireBlocks(_ blocks: [(TimelineTrack, TimelineBlock)]) {
-        // Queue them sequentially like CueEngine.fireNextLight
-        var remaining = blocks
-        fireNextBlock(&remaining)
-    }
-
-    private func fireNextBlock(_ remaining: inout [(TimelineTrack, TimelineBlock)]) {
-        guard let bm = bleManager, !remaining.isEmpty else { return }
-        let (track, block) = remaining.removeFirst()
-        let rest = remaining
-
-        guard let saved = KeyStorage.shared.savedLights.first(where: { $0.id == track.lightId }) else {
-            var mutableRest = rest
-            fireNextBlock(&mutableRest)
-            return
-        }
-
-        bm.targetUnicastAddress = track.unicastAddress
-
-        if bm.connectedPeripheral?.identifier == saved.peripheralIdentifier,
-           bm.connectionState == .ready {
+        guard let bm = bleManager else { return }
+        for (track, block) in blocks {
+            bm.targetUnicastAddress = track.unicastAddress
             sendState(block.state, to: track.unicastAddress, bleManager: bm)
-            var mutableRest = rest
-            fireNextBlock(&mutableRest)
-            return
-        }
-
-        bm.connectToKnownPeripheral(identifier: saved.peripheralIdentifier)
-
-        connectionSub?.cancel()
-        connectionSub = bm.$connectionState
-            .filter { $0 == .ready }
-            .first()
-            .sink { [weak self] _ in
-                self?.sendState(block.state, to: track.unicastAddress, bleManager: bm)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    var mutableRest = rest
-                    self?.fireNextBlock(&mutableRest)
-                }
-            }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
-            guard self?.connectionSub != nil else { return }
-            self?.connectionSub?.cancel()
-            self?.connectionSub = nil
-            var mutableRest = rest
-            self?.fireNextBlock(&mutableRest)
         }
     }
 
@@ -357,18 +312,8 @@ class TimelineEngine: ObservableObject {
 
     private func dimLight(track: TimelineTrack) {
         guard let bm = bleManager else { return }
-        guard let saved = KeyStorage.shared.savedLights.first(where: { $0.id == track.lightId }) else { return }
-
         bm.targetUnicastAddress = track.unicastAddress
-
-        if bm.connectedPeripheral?.identifier == saved.peripheralIdentifier,
-           bm.connectionState == .ready {
-            bm.setCCTWithSleep(intensity: 0, cctKelvin: 5600, sleepMode: 0, targetAddress: track.unicastAddress)
-            return
-        }
-
-        bm.connectToKnownPeripheral(identifier: saved.peripheralIdentifier)
-        // Fire and forget for dims during playback — don't block the main queue
+        bm.setCCTWithSleep(intensity: 0, cctKelvin: 5600, sleepMode: 0, targetAddress: track.unicastAddress)
     }
 
     // MARK: - Helpers

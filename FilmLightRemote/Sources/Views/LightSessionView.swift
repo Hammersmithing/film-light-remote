@@ -1,26 +1,27 @@
 import SwiftUI
 
 /// Presented as a fullScreenCover when the user taps a saved light.
-/// Reconnects to the peripheral and shows LightControlView when ready.
+/// Connects via the bridge and shows LightControlView when ready.
 struct LightSessionView: View {
     @EnvironmentObject var bleManager: BLEManager
     @Environment(\.dismiss) var dismiss
     @StateObject private var lightState = LightState()
+    @ObservedObject private var bridgeManager = BridgeManager.shared
 
     let savedLight: SavedLight
+
+    private var isLightConnected: Bool {
+        bridgeManager.lightStatuses[savedLight.unicastAddress] == true
+    }
 
     var body: some View {
         NavigationStack {
             Group {
-                switch bleManager.connectionState {
-                case .ready, .connected:
-                    VStack(spacing: 0) {
-                        SlotBar(lightState: lightState, lightId: savedLight.id)
-                        LightControlView(lightState: lightState, cctRange: Self.cctRange(for: savedLight.name), intensityStep: Self.intensityStep(for: savedLight.name))
-                    }
-                case .failed(let msg):
-                    failedView(message: msg)
-                default:
+                if isLightConnected {
+                    LightControlView(lightState: lightState, cctRange: Self.cctRange(for: savedLight.name), intensityStep: Self.intensityStep(for: savedLight.name))
+                } else if let error = bridgeManager.lastError {
+                    failedView(message: error)
+                } else {
                     connectingView
                 }
             }
@@ -29,10 +30,6 @@ struct LightSessionView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Close") {
-                        // If a background engine is running, keep the BLE connection alive
-                        if !bleManager.hasActiveEngine {
-                            bleManager.disconnect()
-                        }
                         dismiss()
                     }
                 }
@@ -40,32 +37,11 @@ struct LightSessionView: View {
         }
         .onAppear {
             lightState.load(forLightId: savedLight.id)
-            // If the engine is already running for this light, reflect that in the UI
-            if bleManager.faultyBulbEngine?.targetAddress == savedLight.unicastAddress {
-                lightState.mode = .effects
-                lightState.selectedEffect = .faultyBulb
-                lightState.effectPlaying = true
-            }
             bleManager.syncState(from: lightState)
             bleManager.targetUnicastAddress = savedLight.unicastAddress
-            bleManager.connectToKnownPeripheral(identifier: savedLight.peripheralIdentifier)
-        }
-        .onReceive(bleManager.$connectionState) { state in
-            if state == .ready {
-                // Restart faulty bulb engine if it was actively playing,
-                // but skip if already running for this light (e.g. reopening session)
-                if lightState.mode == .effects && lightState.selectedEffect == .faultyBulb && lightState.effectPlaying {
-                    if bleManager.faultyBulbEngine?.targetAddress != savedLight.unicastAddress {
-                        bleManager.startFaultyBulb(lightState: lightState)
-                    }
-                }
-            }
-        }
-        .onReceive(bleManager.$lastLightStatus.compactMap { $0 }) { status in
-            lightState.applyStatus(status)
+            bridgeManager.connectLight(unicast: savedLight.unicastAddress)
         }
         .onDisappear {
-            bleManager.stopStatePolling()
             lightState.save(forLightId: savedLight.id)
         }
     }
@@ -79,19 +55,10 @@ struct LightSessionView: View {
                 .scaleEffect(1.5)
             Text("Connecting to \(savedLight.name)...")
                 .font(.headline)
-            Text(stateDescription)
+            Text("Via bridge")
                 .font(.caption)
                 .foregroundColor(.secondary)
             Spacer()
-        }
-    }
-
-    private var stateDescription: String {
-        switch bleManager.connectionState {
-        case .scanning: return "Scanning for light..."
-        case .connecting: return "Establishing connection..."
-        case .discoveringServices: return "Discovering services..."
-        default: return ""
         }
     }
 
@@ -115,7 +82,7 @@ struct LightSessionView: View {
                 .padding(.horizontal)
 
             Button("Try Again") {
-                bleManager.connectToKnownPeripheral(identifier: savedLight.peripheralIdentifier)
+                bridgeManager.connectLight(unicast: savedLight.unicastAddress)
             }
             .padding(.horizontal, 40)
             .padding(.vertical, 12)

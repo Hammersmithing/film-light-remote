@@ -4,9 +4,9 @@ import SwiftUI
 /// BLE peripheral so the user sees their changes in real time.
 struct CueLightEditorView: View {
     @EnvironmentObject var bleManager: BLEManager
+    @ObservedObject private var bridgeManager = BridgeManager.shared
     @State private var entry: LightCueEntry
     @StateObject private var lightState = LightState()
-    @State private var isReady = false
     var onSave: (LightCueEntry) -> Void
 
     /// Unicast address before we switched to this light (restored on dismiss).
@@ -34,10 +34,10 @@ struct CueLightEditorView: View {
                 Text(entry.lightName)
                     .font(.headline)
                 Spacer()
-                if !isReady {
+                if !bridgeManager.isConnected {
                     ProgressView()
                         .scaleEffect(0.7)
-                    Text("Connecting...")
+                    Text("Bridge not connected")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
@@ -45,16 +45,14 @@ struct CueLightEditorView: View {
             .padding()
             .background(Color(.systemGray6))
 
-            SlotBar(lightState: lightState, lightId: entry.lightId)
-
-            // Full LightControlView — sends live BLE so the user sees changes
+            // Full LightControlView — sends live commands via bridge
             LightControlView(
                 lightState: lightState,
                 cctRange: cctRange,
                 intensityStep: intensityStep
             )
-            .allowsHitTesting(isReady)
-            .opacity(isReady ? 1.0 : 0.5)
+            .allowsHitTesting(bridgeManager.isConnected)
+            .opacity(bridgeManager.isConnected ? 1.0 : 0.5)
         }
         .navigationTitle("Edit Light State")
         .navigationBarTitleDisplayMode(.inline)
@@ -78,30 +76,13 @@ struct CueLightEditorView: View {
             // Block status feedback — the proxy light's status would overwrite sliders
             bleManager.suppressStatusUpdates = true
 
-            // Connect directly to this light's peripheral for live preview
+            // Point commands at this light and connect via bridge
             bleManager.targetUnicastAddress = entry.unicastAddress
-            if let saved = KeyStorage.shared.savedLights.first(where: { $0.id == entry.lightId }) {
-                // Check if already connected to this light
-                if bleManager.connectedPeripheral?.identifier == saved.peripheralIdentifier,
-                   bleManager.connectionState == .ready {
-                    isReady = true
-                } else {
-                    isReady = false
-                    bleManager.connectToKnownPeripheral(identifier: saved.peripheralIdentifier)
-                }
-            }
+            bridgeManager.connectLight(unicast: entry.unicastAddress)
 
             entry.state.apply(to: lightState)
         }
-        .onReceive(bleManager.$connectionState) { state in
-            if state == .ready {
-                isReady = true
-            }
-        }
         .onDisappear {
-            // Turn the light off so it doesn't persist at the previewed state
-            bleManager.stopEffect()
-            bleManager.sendSleep(false, targetAddress: entry.unicastAddress)
             bleManager.suppressStatusUpdates = false
             bleManager.targetUnicastAddress = previousUnicastAddress
         }

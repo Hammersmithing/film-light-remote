@@ -11,7 +11,7 @@
 		237646B1C10C3EAD06E7E978 /* DebugLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E0AD22691AC13AA834B0487 /* DebugLogView.swift */; };
 		33280DFB3AFB4CCC47E14D14 /* ProvisioningPDU.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8977D6B232922EA4FE6BF488 /* ProvisioningPDU.swift */; };
 		362F8D7C35C5FB9EEA8E1D22 /* ProvisioningManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B4559D072EE93D28896EEFC /* ProvisioningManager.swift */; };
-		4CEE24AC461D9679FB4DF680 /* SidusMeshManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = D28C143EC7176C074425F538 /* SidusMeshManager.swift */; };
+
 		906941AABFDCB09F3F60EE54 /* SidusMeshConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD8F4D6567CD5F653F4FF720 /* SidusMeshConfig.swift */; };
 		967A6D3B3784BF433641BE94 /* LightState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12300A661DDD19AB7992487 /* LightState.swift */; };
 		97580AC1BB44F880636E0AAE /* MyLightsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE57E401E0866863DC5B1146 /* MyLightsView.swift */; };
@@ -20,6 +20,7 @@
 		AD22780D400186BC14DF823B /* FilmLightRemoteApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46C0D7611C64BE31809559B3 /* FilmLightRemoteApp.swift */; };
 		B2A4A24741DE03CAEB2663B2 /* ProvisioningCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = 068ECC53454507BE5CBCC478 /* ProvisioningCrypto.swift */; };
 		B79946754168679DC97B8D38 /* ProvisioningView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D61846E9A4C95FB19D8F15C6 /* ProvisioningView.swift */; };
+		A1B2C3D4E5F60001BRDG0001 /* BridgeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60002BRDG0002 /* BridgeManager.swift */; };
 		C09358CAB6C704237479F3FE /* BLEManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E877B3320FD9730E91EC522 /* BLEManager.swift */; };
 		C137F62B9A5A9DD8C37EA7C0 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6460FFFCC181B4F8B9CCDC0D /* ContentView.swift */; };
 		D7C6F37B47EF51F882855AA0 /* KeyStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B5A689371BF2929D94096E9 /* KeyStorage.swift */; };
@@ -35,19 +36,21 @@
 		4D5E6F7A8B9C0D1E2F3A4B5C /* CueListDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5F6A7B8C9D0E1F2A3B4C5 /* CueListDetailView.swift */; };
 		5E6F7A8B9C0D1E2F3A4B5C6D /* CueEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5F6A7B8C9D0E1F2A3B4C5D6 /* CueEditorView.swift */; };
 		6F7A8B9C0D1E2F3A4B5C6D7E /* CueLightEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6A7B8C9D0E1F2A3B4C5D6E7 /* CueLightEditorView.swift */; };
-		7A8B9C0D1E2F3A4B5C6D7E8F /* TimelineEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7B8C9D0E1F2A3B4C5D6E7F8 /* TimelineEngine.swift */; };
-		8B9C0D1E2F3A4B5C6D7E8F9A /* TimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8C9D0E1F2A3B4C5D6E7F8A9 /* TimelineView.swift */; };
-		9C0D1E2F3A4B5C6D7E8F9A0B /* MetronomeEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8D9E0F1A2B3C4D5E6F7A8B9 /* MetronomeEngine.swift */; };
-		0D1E2F3A4B5C6D7E8F9A0B1C /* TempoMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9E0F1A2B3C4D5E6F7A8B9CA /* TempoMap.swift */; };
-		AA1B2C3D4E5F6A7B8C9D0E1F /* SlotBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB2C3D4E5F6A7B8C9D0E1F2A /* SlotBarView.swift */; };
-		CC1A2B3C4D5E6F7A8B9C0D1E /* GroupsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD2B3C4D5E6F7A8B9C0D1E2F /* GroupsView.swift */; };
-		EE3C4D5E6F7A8B9C0D1E2F3A /* GroupSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF4D5E6F7A8B9C0D1E2F3A4B /* GroupSessionView.swift */; };
+		7A8B9C0D1E2F3A4B5C6D7E8F /* BridgeConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B9C0D1E2F3A4B5C6D7E8F9A /* BridgeConnectionView.swift */; };
+		AA1100001111000011110001 /* TimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1100001111000011110002 /* TimelineView.swift */; };
+		AA2200002222000022220001 /* TimelineEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2200002222000022220002 /* TimelineEngine.swift */; };
+		AA3300003333000033330001 /* MetronomeEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA3300003333000033330002 /* MetronomeEngine.swift */; };
+		AA4400004444000044440001 /* TempoMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA4400004444000044440002 /* TempoMap.swift */; };
+		AA5500005555000055550001 /* GroupsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA5500005555000055550002 /* GroupsView.swift */; };
+		AA6600006666000066660001 /* GroupSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA6600006666000066660002 /* GroupSessionView.swift */; };
+		AA7700007777000077770001 /* SlotBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA7700007777000077770002 /* SlotBarView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		068ECC53454507BE5CBCC478 /* ProvisioningCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProvisioningCrypto.swift; sourceTree = "<group>"; };
 		1B5A689371BF2929D94096E9 /* KeyStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyStorage.swift; sourceTree = "<group>"; };
 		1E877B3320FD9730E91EC522 /* BLEManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLEManager.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60002BRDG0002 /* BridgeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeManager.swift; sourceTree = "<group>"; };
 		2B4559D072EE93D28896EEFC /* ProvisioningManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProvisioningManager.swift; sourceTree = "<group>"; };
 		46C0D7611C64BE31809559B3 /* FilmLightRemoteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmLightRemoteApp.swift; sourceTree = "<group>"; };
 		5E0AD22691AC13AA834B0487 /* DebugLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogView.swift; sourceTree = "<group>"; };
@@ -58,10 +61,11 @@
 		9AAE3FBEA794C6D7DA1D597D /* LightControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightControlView.swift; sourceTree = "<group>"; };
 		AD8F4D6567CD5F653F4FF720 /* SidusMeshConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidusMeshConfig.swift; sourceTree = "<group>"; };
 		B18F642EB0F7B00AEA977D0B /* SavedLight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedLight.swift; sourceTree = "<group>"; };
+		8B9C0D1E2F3A4B5C6D7E8F9A /* BridgeConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeConnectionView.swift; sourceTree = "<group>"; };
 		BED2B28AB1F4072AC772DDBB /* AddLightFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddLightFlowView.swift; sourceTree = "<group>"; };
 		C12300A661DDD19AB7992487 /* LightState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightState.swift; sourceTree = "<group>"; };
 		D25EB2E3FBCB7C6799D4542F /* SidusProtocols.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidusProtocols.swift; sourceTree = "<group>"; };
-		D28C143EC7176C074425F538 /* SidusMeshManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidusMeshManager.swift; sourceTree = "<group>"; };
+
 		D61846E9A4C95FB19D8F15C6 /* ProvisioningView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProvisioningView.swift; sourceTree = "<group>"; };
 		DCBC503C53982BEB3199AF30 /* FilmLightRemote.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = FilmLightRemote.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DE57E401E0866863DC5B1146 /* MyLightsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyLightsView.swift; sourceTree = "<group>"; };
@@ -73,13 +77,13 @@
 		D4E5F6A7B8C9D0E1F2A3B4C5 /* CueListDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueListDetailView.swift; sourceTree = "<group>"; };
 		E5F6A7B8C9D0E1F2A3B4C5D6 /* CueEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueEditorView.swift; sourceTree = "<group>"; };
 		F6A7B8C9D0E1F2A3B4C5D6E7 /* CueLightEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueLightEditorView.swift; sourceTree = "<group>"; };
-		A7B8C9D0E1F2A3B4C5D6E7F8 /* TimelineEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineEngine.swift; sourceTree = "<group>"; };
-		C8D9E0F1A2B3C4D5E6F7A8B9 /* MetronomeEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetronomeEngine.swift; sourceTree = "<group>"; };
-		D9E0F1A2B3C4D5E6F7A8B9CA /* TempoMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TempoMap.swift; sourceTree = "<group>"; };
-		B8C9D0E1F2A3B4C5D6E7F8A9 /* TimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineView.swift; sourceTree = "<group>"; };
-		BB2C3D4E5F6A7B8C9D0E1F2A /* SlotBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlotBarView.swift; sourceTree = "<group>"; };
-		DD2B3C4D5E6F7A8B9C0D1E2F /* GroupsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupsView.swift; sourceTree = "<group>"; };
-		FF4D5E6F7A8B9C0D1E2F3A4B /* GroupSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupSessionView.swift; sourceTree = "<group>"; };
+		AA1100001111000011110002 /* TimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineView.swift; sourceTree = "<group>"; };
+		AA2200002222000022220002 /* TimelineEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineEngine.swift; sourceTree = "<group>"; };
+		AA3300003333000033330002 /* MetronomeEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetronomeEngine.swift; sourceTree = "<group>"; };
+		AA4400004444000044440002 /* TempoMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TempoMap.swift; sourceTree = "<group>"; };
+		AA5500005555000055550002 /* GroupsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupsView.swift; sourceTree = "<group>"; };
+		AA6600006666000066660002 /* GroupSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupSessionView.swift; sourceTree = "<group>"; };
+		AA7700007777000077770002 /* SlotBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlotBarView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -106,21 +110,22 @@
 			isa = PBXGroup;
 			children = (
 				BED2B28AB1F4072AC772DDBB /* AddLightFlowView.swift */,
+				8B9C0D1E2F3A4B5C6D7E8F9A /* BridgeConnectionView.swift */,
 				6460FFFCC181B4F8B9CCDC0D /* ContentView.swift */,
 				E5F6A7B8C9D0E1F2A3B4C5D6 /* CueEditorView.swift */,
 				F6A7B8C9D0E1F2A3B4C5D6E7 /* CueLightEditorView.swift */,
 				D4E5F6A7B8C9D0E1F2A3B4C5 /* CueListDetailView.swift */,
 				C3D4E5F6A7B8C9D0E1F2A3B4 /* CuesView.swift */,
 				5E0AD22691AC13AA834B0487 /* DebugLogView.swift */,
-				FF4D5E6F7A8B9C0D1E2F3A4B /* GroupSessionView.swift */,
-				DD2B3C4D5E6F7A8B9C0D1E2F /* GroupsView.swift */,
+				AA6600006666000066660002 /* GroupSessionView.swift */,
+				AA5500005555000055550002 /* GroupsView.swift */,
 				9AAE3FBEA794C6D7DA1D597D /* LightControlView.swift */,
 				E6813B950AB3CC3D52353986 /* LightSessionView.swift */,
 				DE57E401E0866863DC5B1146 /* MyLightsView.swift */,
 				D61846E9A4C95FB19D8F15C6 /* ProvisioningView.swift */,
 				7516003A19D055B376461731 /* ScannerView.swift */,
-				BB2C3D4E5F6A7B8C9D0E1F2A /* SlotBarView.swift */,
-				B8C9D0E1F2A3B4C5D6E7F8A9 /* TimelineView.swift */,
+				AA7700007777000077770002 /* SlotBarView.swift */,
+				AA1100001111000011110002 /* TimelineView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -139,19 +144,19 @@
 			isa = PBXGroup;
 			children = (
 				1E877B3320FD9730E91EC522 /* BLEManager.swift */,
+				A1B2C3D4E5F60002BRDG0002 /* BridgeManager.swift */,
 				B2C3D4E5F6A7B8C9D0E1F2A3 /* CueEngine.swift */,
 				1B5A689371BF2929D94096E9 /* KeyStorage.swift */,
 				F0B2D3A837E5C066289669C3 /* MeshConfigManager.swift */,
 				992513CD5F1FAA9B84055887 /* MeshCrypto.swift */,
-				C8D9E0F1A2B3C4D5E6F7A8B9 /* MetronomeEngine.swift */,
+				AA3300003333000033330002 /* MetronomeEngine.swift */,
 				068ECC53454507BE5CBCC478 /* ProvisioningCrypto.swift */,
 				2B4559D072EE93D28896EEFC /* ProvisioningManager.swift */,
 				8977D6B232922EA4FE6BF488 /* ProvisioningPDU.swift */,
 				AD8F4D6567CD5F653F4FF720 /* SidusMeshConfig.swift */,
-				D28C143EC7176C074425F538 /* SidusMeshManager.swift */,
 				D25EB2E3FBCB7C6799D4542F /* SidusProtocols.swift */,
-				D9E0F1A2B3C4D5E6F7A8B9CA /* TempoMap.swift */,
-				A7B8C9D0E1F2A3B4C5D6E7F8 /* TimelineEngine.swift */,
+				AA4400004444000044440002 /* TempoMap.swift */,
+				AA2200002222000022220002 /* TimelineEngine.swift */,
 			);
 			path = BLE;
 			sourceTree = "<group>";
@@ -258,6 +263,8 @@
 			files = (
 				F5C6FF848AAE9ED7FDA235B2 /* AddLightFlowView.swift in Sources */,
 				C09358CAB6C704237479F3FE /* BLEManager.swift in Sources */,
+				7A8B9C0D1E2F3A4B5C6D7E8F /* BridgeConnectionView.swift in Sources */,
+				A1B2C3D4E5F60001BRDG0001 /* BridgeManager.swift in Sources */,
 				5E6F7A8B9C0D1E2F3A4B5C6D /* CueEditorView.swift in Sources */,
 				2B3C4D5E6F7A8B9C0D1E2F3A /* CueEngine.swift in Sources */,
 				6F7A8B9C0D1E2F3A4B5C6D7E /* CueLightEditorView.swift in Sources */,
@@ -267,15 +274,12 @@
 				C137F62B9A5A9DD8C37EA7C0 /* ContentView.swift in Sources */,
 				237646B1C10C3EAD06E7E978 /* DebugLogView.swift in Sources */,
 				AD22780D400186BC14DF823B /* FilmLightRemoteApp.swift in Sources */,
-				EE3C4D5E6F7A8B9C0D1E2F3A /* GroupSessionView.swift in Sources */,
-				CC1A2B3C4D5E6F7A8B9C0D1E /* GroupsView.swift in Sources */,
 				D7C6F37B47EF51F882855AA0 /* KeyStorage.swift in Sources */,
 				0A9282FEA8918D629FAEED8D /* LightControlView.swift in Sources */,
 				EF1FBB863574D0C9C753A024 /* LightSessionView.swift in Sources */,
 				967A6D3B3784BF433641BE94 /* LightState.swift in Sources */,
 				FAF341FDFC2DF238C5DCF06C /* MeshConfigManager.swift in Sources */,
 				9CA18D2A805EBEDF789859F4 /* MeshCrypto.swift in Sources */,
-				9C0D1E2F3A4B5C6D7E8F9A0B /* MetronomeEngine.swift in Sources */,
 				97580AC1BB44F880636E0AAE /* MyLightsView.swift in Sources */,
 				B2A4A24741DE03CAEB2663B2 /* ProvisioningCrypto.swift in Sources */,
 				362F8D7C35C5FB9EEA8E1D22 /* ProvisioningManager.swift in Sources */,
@@ -284,12 +288,15 @@
 				E3F769A0C59620618AE4CFDB /* SavedLight.swift in Sources */,
 				F6520380E97A2CF03A4D2759 /* ScannerView.swift in Sources */,
 				906941AABFDCB09F3F60EE54 /* SidusMeshConfig.swift in Sources */,
-				4CEE24AC461D9679FB4DF680 /* SidusMeshManager.swift in Sources */,
+
 				9F4E8D7B81AF8C471777253E /* SidusProtocols.swift in Sources */,
-				AA1B2C3D4E5F6A7B8C9D0E1F /* SlotBarView.swift in Sources */,
-				0D1E2F3A4B5C6D7E8F9A0B1C /* TempoMap.swift in Sources */,
-				7A8B9C0D1E2F3A4B5C6D7E8F /* TimelineEngine.swift in Sources */,
-				8B9C0D1E2F3A4B5C6D7E8F9A /* TimelineView.swift in Sources */,
+				AA1100001111000011110001 /* TimelineView.swift in Sources */,
+				AA2200002222000022220001 /* TimelineEngine.swift in Sources */,
+				AA3300003333000033330001 /* MetronomeEngine.swift in Sources */,
+				AA4400004444000044440001 /* TempoMap.swift in Sources */,
+				AA5500005555000055550001 /* GroupsView.swift in Sources */,
+				AA6600006666000066660001 /* GroupSessionView.swift in Sources */,
+				AA7700007777000077770001 /* SlotBarView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
