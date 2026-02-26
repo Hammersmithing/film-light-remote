@@ -231,7 +231,16 @@ class CueEngine: ObservableObject {
         }
     }
 
-    // MARK: - Reset
+    // MARK: - Stop / Reset
+
+    func stop() {
+        cancelPending()
+        // Dim all lights from the current cue
+        if currentCueIndex < allCues.count {
+            dimCueLights(allCues[currentCueIndex])
+        }
+        isRunning = false
+    }
 
     func reset() {
         cancelPending()

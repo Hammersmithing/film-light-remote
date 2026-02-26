@@ -146,21 +146,47 @@ struct CueListDetailView: View {
         .listStyle(.plain)
     }
 
-    // MARK: - GO Button
+    // MARK: - GO / Stop / Reset Buttons
 
     private var goButton: some View {
-        Button {
-            fireCue()
-        } label: {
-            Text("GO")
-                .font(.system(size: 36, weight: .black, design: .rounded))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 20)
-                .background(isConnected ? Color.green : Color.gray)
-                .foregroundColor(.white)
-                .cornerRadius(16)
+        VStack(spacing: 8) {
+            HStack(spacing: 12) {
+                Button {
+                    engine.stop()
+                } label: {
+                    Label("Stop", systemImage: "stop.fill")
+                        .font(.system(size: 17, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color.red)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                }
+                Button {
+                    engine.reset()
+                } label: {
+                    Label("Reset", systemImage: "arrow.counterclockwise")
+                        .font(.system(size: 17, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color.orange)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                }
+            }
+            Button {
+                fireCue()
+            } label: {
+                Text("GO")
+                    .font(.system(size: 36, weight: .black, design: .rounded))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 20)
+                    .background(isConnected ? Color.green : Color.gray)
+                    .foregroundColor(.white)
+                    .cornerRadius(16)
+            }
+            .disabled(cueList.cues.isEmpty || !isConnected)
         }
-        .disabled(cueList.cues.isEmpty || !isConnected)
         .padding()
     }
 
