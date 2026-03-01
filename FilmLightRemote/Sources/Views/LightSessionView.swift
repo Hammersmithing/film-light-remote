@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Presented as a fullScreenCover when the user taps a saved light.
-/// Connects via the bridge and shows LightControlView when ready.
+/// Connects via the bridge (if available) or direct BLE, then shows LightControlView.
 struct LightSessionView: View {
     @EnvironmentObject var bleManager: BLEManager
     @Environment(\.dismiss) var dismiss
@@ -10,8 +10,14 @@ struct LightSessionView: View {
 
     let savedLight: SavedLight
 
+    private var usingBridge: Bool { bridgeManager.isConnected }
+
     private var isLightConnected: Bool {
-        bridgeManager.lightStatuses[savedLight.unicastAddress] == true
+        if usingBridge {
+            return bridgeManager.lightStatuses[savedLight.unicastAddress] == true
+        } else {
+            return bleManager.connectionState == .ready
+        }
     }
 
     var body: some View {
@@ -19,8 +25,10 @@ struct LightSessionView: View {
             Group {
                 if isLightConnected {
                     LightControlView(lightState: lightState, cctRange: Self.cctRange(for: savedLight.name), intensityStep: Self.intensityStep(for: savedLight.name))
-                } else if let error = bridgeManager.lastError {
+                } else if usingBridge, let error = bridgeManager.lastError {
                     failedView(message: error)
+                } else if case .failed(let msg) = bleManager.connectionState {
+                    failedView(message: msg)
                 } else {
                     connectingView
                 }
@@ -30,6 +38,9 @@ struct LightSessionView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Close") {
+                        if !usingBridge {
+                            bleManager.disconnect()
+                        }
                         dismiss()
                     }
                 }
@@ -39,7 +50,11 @@ struct LightSessionView: View {
             lightState.load(forLightId: savedLight.id)
             bleManager.syncState(from: lightState)
             bleManager.targetUnicastAddress = savedLight.unicastAddress
-            bridgeManager.connectLight(unicast: savedLight.unicastAddress)
+            if usingBridge {
+                bridgeManager.connectLight(unicast: savedLight.unicastAddress)
+            } else {
+                bleManager.connectToKnownPeripheral(identifier: savedLight.peripheralIdentifier)
+            }
         }
         .onDisappear {
             lightState.save(forLightId: savedLight.id)
@@ -55,7 +70,7 @@ struct LightSessionView: View {
                 .scaleEffect(1.5)
             Text("Connecting to \(savedLight.name)...")
                 .font(.headline)
-            Text("Via bridge")
+            Text(usingBridge ? "Via bridge" : "Via Bluetooth")
                 .font(.caption)
                 .foregroundColor(.secondary)
             Spacer()
@@ -67,7 +82,7 @@ struct LightSessionView: View {
     private func failedView(message: String) -> some View {
         VStack(spacing: 20) {
             Spacer()
-            Image(systemName: "wifi.exclamationmark")
+            Image(systemName: usingBridge ? "wifi.exclamationmark" : "antenna.radiowaves.left.and.right.slash")
                 .font(.system(size: 50))
                 .foregroundColor(.secondary)
 
@@ -82,7 +97,11 @@ struct LightSessionView: View {
                 .padding(.horizontal)
 
             Button("Try Again") {
-                bridgeManager.connectLight(unicast: savedLight.unicastAddress)
+                if usingBridge {
+                    bridgeManager.connectLight(unicast: savedLight.unicastAddress)
+                } else {
+                    bleManager.connectToKnownPeripheral(identifier: savedLight.peripheralIdentifier)
+                }
             }
             .padding(.horizontal, 40)
             .padding(.vertical, 12)

@@ -12,6 +12,8 @@ struct GroupSessionView: View {
     @State private var showingEditSheet = false
     @State private var currentGroup: LightGroup
 
+    private var usingBridge: Bool { bridgeManager.isConnected }
+
     init(group: LightGroup) {
         self.group = group
         _currentGroup = State(initialValue: group)
@@ -45,6 +47,9 @@ struct GroupSessionView: View {
                         // Save all light states
                         for (id, state) in lightStates {
                             state.save(forLightId: id)
+                        }
+                        if !usingBridge {
+                            bleManager.disconnect()
                         }
                         dismiss()
                     }
@@ -109,10 +114,18 @@ struct GroupSessionView: View {
     }
 
     private func lightStatusColor(for light: SavedLight) -> Color {
-        if bridgeManager.lightStatuses[light.unicastAddress] == true {
-            return .green
+        if usingBridge {
+            if bridgeManager.lightStatuses[light.unicastAddress] == true {
+                return .green
+            }
+            return .gray
+        } else {
+            // In direct BLE mode, only the currently connected light shows green
+            if light.id == selectedLightId && bleManager.connectionState == .ready {
+                return .green
+            }
+            return .gray
         }
-        return .gray
     }
 
     // MARK: - Session Content
@@ -245,7 +258,13 @@ struct GroupSessionView: View {
 
         // Point BLE commands at this light's unicast address
         bleManager.targetUnicastAddress = light.unicastAddress
-        // Ask bridge to connect to this light
-        bridgeManager.connectLight(unicast: light.unicastAddress)
+
+        if usingBridge {
+            // Ask bridge to connect to this light
+            bridgeManager.connectLight(unicast: light.unicastAddress)
+        } else {
+            // Direct BLE: connect to this light's peripheral (disconnects previous)
+            bleManager.connectToKnownPeripheral(identifier: light.peripheralIdentifier)
+        }
     }
 }

@@ -120,7 +120,9 @@ struct MyLightsView: View {
     private var lightsList: some View {
         List {
             ForEach(savedLights) { light in
-                let lightConnected = bridgeManager.lightStatuses[light.unicastAddress] == true
+                let lightConnected = bridgeManager.isConnected
+                    ? bridgeManager.lightStatuses[light.unicastAddress] == true
+                    : (bleManager.connectedPeripheral?.identifier == light.peripheralIdentifier && bleManager.connectionState == .ready)
                 Button {
                     selectedLight = light
                 } label: {
@@ -133,7 +135,6 @@ struct MyLightsView: View {
                     })
                 }
                 .tint(.primary)
-                .disabled(!bridgeManager.isConnected)
             }
         }
     }

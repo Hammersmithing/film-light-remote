@@ -292,7 +292,7 @@ class BLEManager: NSObject, ObservableObject {
         cleanup()
     }
 
-    // MARK: - Light Control Commands (using Sidus Protocol via Bridge)
+    // MARK: - Light Control Commands (dual-path: bridge when available, direct BLE otherwise)
 
     /// Current light state (stored for combined commands like power on/off)
     private(set) var currentIntensity: Int = 50
@@ -300,6 +300,9 @@ class BLEManager: NSObject, ObservableObject {
     private(set) var currentHue: Int = 0
     private(set) var currentSaturation: Int = 100
     private(set) var currentHSICCT: Int = 5600
+
+    /// Whether commands should go through the bridge (true) or direct BLE (false).
+    var useBridge: Bool { bridgeManager.isConnected }
 
     /// Sync BLEManager state from a loaded LightState (call when opening a light session)
     func syncState(from lightState: LightState) {
@@ -310,22 +313,55 @@ class BLEManager: NSObject, ObservableObject {
         currentSaturation = Int(lightState.saturation)
     }
 
+    // MARK: - Direct BLE Send Helper
+
+    /// Send a Sidus protocol payload directly via BLE mesh proxy (no bridge).
+    private func sendViaBLE(_ protocol: SidusProtocol, dst: UInt16) {
+        guard let peripheral = connectedPeripheral, let char = meshProxyIn else {
+            log("sendViaBLE: no peripheral/proxy char — cannot send")
+            return
+        }
+        let payload = `protocol`.getSendData()
+        var accessMessage: [UInt8] = [0x26]
+        accessMessage.append(contentsOf: payload)
+        if let pdu = MeshCrypto.createStandardMeshPDU(accessMessage: accessMessage, dst: dst) {
+            peripheral.writeValue(pdu, for: char, type: .withoutResponse)
+        }
+    }
+
     func setIntensity(_ percent: Double) {
         currentIntensity = Int(percent)
         currentMode = "cct"
-        bridgeManager.setCCT(unicast: targetUnicastAddress, intensity: percent, cctKelvin: currentCCT, sleepMode: 1)
+        if useBridge {
+            bridgeManager.setCCT(unicast: targetUnicastAddress, intensity: percent, cctKelvin: currentCCT, sleepMode: 1)
+        } else {
+            let proto = CCTProtocol(intensityPercent: percent, cctKelvin: currentCCT)
+            sendViaBLE(proto, dst: targetUnicastAddress)
+        }
     }
 
     /// Set CCT with explicit values and sleepMode control for instant on/off transitions.
     func setCCTWithSleep(intensity percent: Double, cctKelvin: Int, sleepMode: Int, targetAddress: UInt16? = nil) {
         let dst = targetAddress ?? targetUnicastAddress
-        bridgeManager.setCCT(unicast: dst, intensity: percent, cctKelvin: cctKelvin, sleepMode: sleepMode)
+        if useBridge {
+            bridgeManager.setCCT(unicast: dst, intensity: percent, cctKelvin: cctKelvin, sleepMode: sleepMode)
+        } else {
+            var proto = CCTProtocol(intensityPercent: percent, cctKelvin: cctKelvin)
+            proto.sleepMode = sleepMode
+            sendViaBLE(proto, dst: dst)
+        }
     }
 
     /// Set HSI with explicit values and sleepMode control for instant on/off transitions.
     func setHSIWithSleep(intensity percent: Double, hue: Int, saturation: Int, cctKelvin: Int = 5600, sleepMode: Int, targetAddress: UInt16? = nil) {
         let dst = targetAddress ?? targetUnicastAddress
-        bridgeManager.setHSI(unicast: dst, intensity: percent, hue: hue, saturation: saturation, cctKelvin: cctKelvin, sleepMode: sleepMode)
+        if useBridge {
+            bridgeManager.setHSI(unicast: dst, intensity: percent, hue: hue, saturation: saturation, cctKelvin: cctKelvin, sleepMode: sleepMode)
+        } else {
+            var proto = HSIProtocol(intensityPercent: percent, hue: hue, saturationPercent: Double(saturation), cctKelvin: cctKelvin)
+            proto.sleepMode = sleepMode
+            sendViaBLE(proto, dst: dst)
+        }
     }
 
     /// Current CCT value for combined commands
@@ -334,7 +370,12 @@ class BLEManager: NSObject, ObservableObject {
     func setCCT(_ kelvin: Int) {
         currentCCT = kelvin
         currentMode = "cct"
-        bridgeManager.setCCT(unicast: targetUnicastAddress, intensity: Double(currentIntensity), cctKelvin: kelvin, sleepMode: 1)
+        if useBridge {
+            bridgeManager.setCCT(unicast: targetUnicastAddress, intensity: Double(currentIntensity), cctKelvin: kelvin, sleepMode: 1)
+        } else {
+            let proto = CCTProtocol(intensityPercent: Double(currentIntensity), cctKelvin: kelvin)
+            sendViaBLE(proto, dst: targetUnicastAddress)
+        }
     }
 
     func setRGB(red: Int, green: Int, blue: Int) {
@@ -349,40 +390,83 @@ class BLEManager: NSObject, ObservableObject {
         currentSaturation = saturation
         currentIntensity = intensity
         currentHSICCT = cctKelvin
-        bridgeManager.setHSI(unicast: targetUnicastAddress, intensity: Double(intensity), hue: hue, saturation: saturation, cctKelvin: cctKelvin, sleepMode: 1)
+        if useBridge {
+            bridgeManager.setHSI(unicast: targetUnicastAddress, intensity: Double(intensity), hue: hue, saturation: saturation, cctKelvin: cctKelvin, sleepMode: 1)
+        } else {
+            let proto = HSIProtocol(intensityPercent: Double(intensity), hue: hue, saturationPercent: Double(saturation), cctKelvin: cctKelvin)
+            sendViaBLE(proto, dst: targetUnicastAddress)
+        }
     }
 
     func setPowerOn(_ on: Bool) {
         let sleepMode = on ? 1 : 0
         let intensity = on ? max(currentIntensity, 10) : 0
-        if currentMode == "hsi" {
-            bridgeManager.setHSI(unicast: targetUnicastAddress, intensity: Double(intensity), hue: currentHue, saturation: currentSaturation, cctKelvin: currentHSICCT, sleepMode: sleepMode)
+        if useBridge {
+            if currentMode == "hsi" {
+                bridgeManager.setHSI(unicast: targetUnicastAddress, intensity: Double(intensity), hue: currentHue, saturation: currentSaturation, cctKelvin: currentHSICCT, sleepMode: sleepMode)
+            } else {
+                bridgeManager.setCCT(unicast: targetUnicastAddress, intensity: Double(intensity), cctKelvin: currentCCT, sleepMode: sleepMode)
+            }
         } else {
-            bridgeManager.setCCT(unicast: targetUnicastAddress, intensity: Double(intensity), cctKelvin: currentCCT, sleepMode: sleepMode)
+            if currentMode == "hsi" {
+                var proto = HSIProtocol(intensityPercent: Double(intensity), hue: currentHue, saturationPercent: Double(currentSaturation), cctKelvin: currentHSICCT)
+                proto.sleepMode = sleepMode
+                sendViaBLE(proto, dst: targetUnicastAddress)
+            } else {
+                var proto = CCTProtocol(intensityPercent: Double(intensity), cctKelvin: currentCCT)
+                proto.sleepMode = sleepMode
+                sendViaBLE(proto, dst: targetUnicastAddress)
+            }
         }
     }
 
     func setEffect(effectType: Int, intensityPercent: Double, frq: Int, cctKelvin: Int = 5600, copCarColor: Int = 0, effectMode: Int = 0, hue: Int = 0, saturation: Int = 100, targetAddress: UInt16? = nil) {
         currentMode = "effects"
         let dst = targetAddress ?? targetUnicastAddress
-        bridgeManager.setEffect(unicast: dst, effectType: effectType, intensity: intensityPercent, frq: frq, cctKelvin: cctKelvin, copCarColor: copCarColor, effectMode: effectMode, hue: hue, saturation: saturation)
+        if useBridge {
+            bridgeManager.setEffect(unicast: dst, effectType: effectType, intensity: intensityPercent, frq: frq, cctKelvin: cctKelvin, copCarColor: copCarColor, effectMode: effectMode, hue: hue, saturation: saturation)
+        } else {
+            // Direct BLE: send the hardware effect protocol
+            var proto = SidusEffectProtocol(effectType: effectType, intensityPercent: intensityPercent, frq: frq, cctKelvin: cctKelvin)
+            proto.color = copCarColor
+            proto.effectMode = effectMode
+            proto.hue = hue
+            proto.sat = saturation
+            sendViaBLE(proto, dst: dst)
+        }
     }
 
     /// Send sleep command for instant on/off.
     func sendSleep(_ on: Bool, targetAddress: UInt16? = nil) {
         let dst = targetAddress ?? targetUnicastAddress
-        bridgeManager.sendSleep(unicast: dst, on: on)
+        if useBridge {
+            bridgeManager.sendSleep(unicast: dst, on: on)
+        } else {
+            let proto = SleepProtocol(on: on)
+            sendViaBLE(proto, dst: dst)
+        }
     }
 
     func stopEffect() {
-        bridgeManager.stopEffect(unicast: targetUnicastAddress)
-        log("stopEffect() via bridge for 0x\(String(format: "%04X", targetUnicastAddress))")
+        if useBridge {
+            bridgeManager.stopEffect(unicast: targetUnicastAddress)
+            log("stopEffect() via bridge for 0x\(String(format: "%04X", targetUnicastAddress))")
+        } else {
+            // Send effect-off (effectType 15) via direct BLE
+            let proto = SidusEffectProtocol(effectType: 15)
+            sendViaBLE(proto, dst: targetUnicastAddress)
+            log("stopEffect() via direct BLE for 0x\(String(format: "%04X", targetUnicastAddress))")
+        }
     }
 
-    // MARK: - Software Effect Commands (bridge-only)
+    // MARK: - Software Effect Commands (bridge-only; direct BLE sends base color instead)
 
-    /// Start a faulty bulb effect on the bridge.
+    /// Start a faulty bulb effect on the bridge. In direct BLE mode, no-op (base color already set).
     func startFaultyBulb(lightState: LightState) {
+        guard useBridge else {
+            log("startFaultyBulb: software effects require bridge — sending base color only")
+            return
+        }
         let params = BridgeManager.effectParams(from: lightState, effect: .faultyBulb)
         bridgeManager.startSoftwareEffect(unicast: targetUnicastAddress, engine: "faultyBulb", params: params)
         log("Faulty bulb engine started on bridge for 0x\(String(format: "%04X", targetUnicastAddress))")
@@ -390,22 +474,35 @@ class BLEManager: NSObject, ObservableObject {
 
     /// Stop faulty bulb effect for a specific light, or current target.
     func stopFaultyBulb(forAddress address: UInt16? = nil) {
+        guard useBridge else { return }
         bridgeManager.stopEffect(unicast: address ?? targetUnicastAddress)
     }
 
-    /// Start a paparazzi effect on the bridge.
+    /// Start a paparazzi effect on the bridge. In direct BLE mode, sends hardware effect instead.
     func startPaparazzi(lightState: LightState) {
-        let params = BridgeManager.effectParams(from: lightState, effect: .paparazzi)
-        bridgeManager.startSoftwareEffect(unicast: targetUnicastAddress, engine: "paparazzi", params: params)
-        log("Paparazzi engine started on bridge for 0x\(String(format: "%04X", targetUnicastAddress))")
+        if useBridge {
+            let params = BridgeManager.effectParams(from: lightState, effect: .paparazzi)
+            bridgeManager.startSoftwareEffect(unicast: targetUnicastAddress, engine: "paparazzi", params: params)
+            log("Paparazzi engine started on bridge for 0x\(String(format: "%04X", targetUnicastAddress))")
+        } else {
+            // Fall back to hardware paparazzi effect
+            setEffect(effectType: LightEffect.paparazzi.rawValue, intensityPercent: lightState.intensity, frq: Int(lightState.effectFrequency), cctKelvin: Int(lightState.cctKelvin))
+            log("Paparazzi via hardware effect (no bridge) for 0x\(String(format: "%04X", targetUnicastAddress))")
+        }
     }
 
-    /// Start a software effect on the bridge.
+    /// Start a software effect on the bridge. In direct BLE mode, sends hardware effect if possible.
     func startSoftwareEffect(lightState: LightState) {
         let effect = lightState.selectedEffect
-        let params = BridgeManager.effectParams(from: lightState, effect: effect)
-        bridgeManager.startSoftwareEffect(unicast: targetUnicastAddress, engine: BridgeManager.engineName(for: effect), params: params)
-        log("Software effect engine started on bridge: \(effect) for 0x\(String(format: "%04X", targetUnicastAddress))")
+        if useBridge {
+            let params = BridgeManager.effectParams(from: lightState, effect: effect)
+            bridgeManager.startSoftwareEffect(unicast: targetUnicastAddress, engine: BridgeManager.engineName(for: effect), params: params)
+            log("Software effect engine started on bridge: \(effect) for 0x\(String(format: "%04X", targetUnicastAddress))")
+        } else {
+            // Fall back to hardware effect via direct BLE
+            setEffect(effectType: effect.rawValue, intensityPercent: lightState.intensity, frq: Int(lightState.effectFrequency), cctKelvin: Int(lightState.cctKelvin), hue: Int(lightState.hue), saturation: Int(lightState.saturation))
+            log("Software effect \(effect) sent as hardware effect (no bridge) for 0x\(String(format: "%04X", targetUnicastAddress))")
+        }
     }
 
     /// Convert RGB to HSI
