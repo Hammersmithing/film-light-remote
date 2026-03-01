@@ -459,39 +459,51 @@ class BLEManager: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - Software Effect Commands (bridge-only; direct BLE sends base color instead)
+    // MARK: - Software Effect Commands (bridge uses software engines; direct BLE falls back to hardware effects)
 
-    /// Start a faulty bulb effect on the bridge. In direct BLE mode, no-op (base color already set).
+    /// Send a hardware effect command for the given lightState (used as fallback when no bridge).
+    private func sendHardwareEffect(lightState: LightState) {
+        let effect = lightState.selectedEffect
+        setEffect(effectType: effect.rawValue, intensityPercent: lightState.intensity,
+                  frq: Int(lightState.effectFrequency), cctKelvin: Int(lightState.cctKelvin),
+                  copCarColor: lightState.copCarColor, effectMode: 0,
+                  hue: Int(lightState.hue), saturation: Int(lightState.saturation))
+    }
+
+    /// Start a faulty bulb effect. Bridge uses software engine; direct BLE sends hardware effect 8.
     func startFaultyBulb(lightState: LightState) {
-        guard useBridge else {
-            log("startFaultyBulb: software effects require bridge — sending base color only")
-            return
+        if useBridge {
+            let params = BridgeManager.effectParams(from: lightState, effect: .faultyBulb)
+            bridgeManager.startSoftwareEffect(unicast: targetUnicastAddress, engine: "faultyBulb", params: params)
+            log("Faulty bulb engine started on bridge for 0x\(String(format: "%04X", targetUnicastAddress))")
+        } else {
+            sendHardwareEffect(lightState: lightState)
+            log("Faulty bulb via hardware effect (no bridge) for 0x\(String(format: "%04X", targetUnicastAddress))")
         }
-        let params = BridgeManager.effectParams(from: lightState, effect: .faultyBulb)
-        bridgeManager.startSoftwareEffect(unicast: targetUnicastAddress, engine: "faultyBulb", params: params)
-        log("Faulty bulb engine started on bridge for 0x\(String(format: "%04X", targetUnicastAddress))")
     }
 
     /// Stop faulty bulb effect for a specific light, or current target.
     func stopFaultyBulb(forAddress address: UInt16? = nil) {
-        guard useBridge else { return }
-        bridgeManager.stopEffect(unicast: address ?? targetUnicastAddress)
+        if useBridge {
+            bridgeManager.stopEffect(unicast: address ?? targetUnicastAddress)
+        } else {
+            stopEffect()
+        }
     }
 
-    /// Start a paparazzi effect on the bridge. In direct BLE mode, sends hardware effect instead.
+    /// Start a paparazzi effect. Bridge uses software engine; direct BLE sends hardware effect.
     func startPaparazzi(lightState: LightState) {
         if useBridge {
             let params = BridgeManager.effectParams(from: lightState, effect: .paparazzi)
             bridgeManager.startSoftwareEffect(unicast: targetUnicastAddress, engine: "paparazzi", params: params)
             log("Paparazzi engine started on bridge for 0x\(String(format: "%04X", targetUnicastAddress))")
         } else {
-            // Fall back to hardware paparazzi effect
-            setEffect(effectType: LightEffect.paparazzi.rawValue, intensityPercent: lightState.intensity, frq: Int(lightState.effectFrequency), cctKelvin: Int(lightState.cctKelvin))
+            sendHardwareEffect(lightState: lightState)
             log("Paparazzi via hardware effect (no bridge) for 0x\(String(format: "%04X", targetUnicastAddress))")
         }
     }
 
-    /// Start a software effect on the bridge. In direct BLE mode, sends hardware effect if possible.
+    /// Start a software effect. Bridge uses software engine; direct BLE sends hardware effect.
     func startSoftwareEffect(lightState: LightState) {
         let effect = lightState.selectedEffect
         if useBridge {
@@ -499,9 +511,18 @@ class BLEManager: NSObject, ObservableObject {
             bridgeManager.startSoftwareEffect(unicast: targetUnicastAddress, engine: BridgeManager.engineName(for: effect), params: params)
             log("Software effect engine started on bridge: \(effect) for 0x\(String(format: "%04X", targetUnicastAddress))")
         } else {
-            // Fall back to hardware effect via direct BLE
-            setEffect(effectType: effect.rawValue, intensityPercent: lightState.intensity, frq: Int(lightState.effectFrequency), cctKelvin: Int(lightState.cctKelvin), hue: Int(lightState.hue), saturation: Int(lightState.saturation))
+            sendHardwareEffect(lightState: lightState)
             log("Software effect \(effect) sent as hardware effect (no bridge) for 0x\(String(format: "%04X", targetUnicastAddress))")
+        }
+    }
+
+    /// Update a running effect's parameters. Bridge sends incremental update; direct BLE re-sends full hardware command.
+    func updateRunningEffect(lightState: LightState) {
+        if useBridge {
+            let params = BridgeManager.effectParams(from: lightState, effect: lightState.selectedEffect)
+            bridgeManager.updateEffect(unicast: targetUnicastAddress, params: params)
+        } else {
+            sendHardwareEffect(lightState: lightState)
         }
     }
 

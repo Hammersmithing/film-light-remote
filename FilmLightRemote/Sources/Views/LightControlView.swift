@@ -551,30 +551,14 @@ struct EffectsControls: View {
         }
     }
 
-    /// Slider drag updates: send updated params to bridge.
+    /// Slider drag updates: send updated params to bridge or re-send hardware effect.
     private func sendCurrentEffect() {
         guard lightState.selectedEffect != .none else { return }
         guard lightState.effectPlaying else { return }
         if previewMode { return }
 
-        if lightState.selectedEffect == .faultyBulb {
-            let params = BridgeManager.effectParams(from: lightState, effect: .faultyBulb)
-            bleManager.bridgeManager.updateEffect(unicast: bleManager.targetUnicastAddress, params: params)
-        } else if needsSoftwareEngine {
-            let params = BridgeManager.effectParams(from: lightState, effect: lightState.selectedEffect)
-            bleManager.bridgeManager.updateEffect(unicast: bleManager.targetUnicastAddress, params: params)
-        } else {
-            throttle.send { [bleManager, lightState] in
-                bleManager.setEffect(
-                    effectType: lightState.selectedEffect.rawValue,
-                    intensityPercent: lightState.intensity,
-                    frq: Int(lightState.effectFrequency),
-                    cctKelvin: Int(lightState.cctKelvin),
-                    copCarColor: lightState.copCarColor,
-                    effectMode: 0,
-                    hue: Int(lightState.hue),
-                    saturation: Int(lightState.saturation))
-            }
+        throttle.send { [bleManager, lightState] in
+            bleManager.updateRunningEffect(lightState: lightState)
         }
     }
 }
@@ -1053,20 +1037,18 @@ private struct FaultyBulbDetail: View {
         }
     }
 
-    /// Push current lightState params to the bridge effect engine
+    /// Push current lightState params to the effect engine (bridge) or re-send hardware effect (direct BLE).
     private func syncEngineParams() {
         if previewMode { return }
         guard lightState.effectPlaying else { return }
-        let params = BridgeManager.effectParams(from: lightState, effect: .faultyBulb)
-        bleManager.bridgeManager.updateEffect(unicast: bleManager.targetUnicastAddress, params: params)
+        bleManager.updateRunningEffect(lightState: lightState)
     }
 
-    /// Immediately send the current color and push updated params to the bridge.
+    /// Immediately send the current color and push updated params.
     private func sendColorNow() {
         if previewMode { return }
         guard lightState.effectPlaying else { return }
-        let params = BridgeManager.effectParams(from: lightState, effect: .faultyBulb)
-        bleManager.bridgeManager.updateEffect(unicast: bleManager.targetUnicastAddress, params: params)
+        bleManager.updateRunningEffect(lightState: lightState)
     }
 }
 
@@ -1222,8 +1204,7 @@ private struct StrobeDetail: View {
                 Slider(value: $lightState.strobeHz, in: 1...12, step: 1)
                     .onChange(of: lightState.strobeHz) { _ in
                         if !previewMode && lightState.effectPlaying {
-                            let params = BridgeManager.effectParams(from: lightState, effect: .strobe)
-                            bleManager.bridgeManager.updateEffect(unicast: bleManager.targetUnicastAddress, params: params)
+                            bleManager.updateRunningEffect(lightState: lightState)
                         }
                     }
             }
@@ -1524,8 +1505,7 @@ private struct PulsingDetail: View {
     private func syncParams() {
         if previewMode { return }
         guard lightState.effectPlaying else { return }
-        let params = BridgeManager.effectParams(from: lightState, effect: .pulsing)
-        bleManager.bridgeManager.updateEffect(unicast: bleManager.targetUnicastAddress, params: params)
+        bleManager.updateRunningEffect(lightState: lightState)
     }
 }
 
