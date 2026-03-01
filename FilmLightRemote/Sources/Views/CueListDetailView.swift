@@ -18,8 +18,8 @@ struct CueListDetailView: View {
         self.onUpdate = onUpdate
     }
 
-    private var isConnected: Bool {
-        bridgeManager.isConnected
+    private var isReady: Bool {
+        bridgeManager.isConnected || bleManager.connectionState == .ready
     }
 
     var body: some View {
@@ -77,7 +77,7 @@ struct CueListDetailView: View {
 
     private var connectionBanner: some View {
         HStack(spacing: 6) {
-            if isConnected {
+            if isReady {
                 Circle()
                     .fill(Color.green)
                     .frame(width: 8, height: 8)
@@ -181,11 +181,11 @@ struct CueListDetailView: View {
                     .font(.system(size: 36, weight: .black, design: .rounded))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 20)
-                    .background(isConnected ? Color.green : Color.gray)
+                    .background(isReady ? Color.green : Color.gray)
                     .foregroundColor(.white)
                     .cornerRadius(16)
             }
-            .disabled(cueList.cues.isEmpty || !isConnected)
+            .disabled(cueList.cues.isEmpty || !isReady)
         }
         .padding()
     }

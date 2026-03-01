@@ -63,7 +63,7 @@ class CueEngine: ObservableObject {
     /// Step 4: The current cue has finished its duration.
     private func cueDidEnd() {
         // Stop all effects and dim lights to 0%
-        bleManager?.bridgeManager.stopAll()
+        stopAllEffects()
         dimCueLights(allCues[currentCueIndex])
 
         let nextIndex = currentCueIndex + 1
@@ -195,12 +195,27 @@ class CueEngine: ObservableObject {
                 guard self != nil else { return }
                 bleManager.targetUnicastAddress = address
 
-                let params = BridgeManager.effectParams(from: ls, effect: effect)
-                bleManager.bridgeManager.startSoftwareEffect(
-                    unicast: address,
-                    engine: BridgeManager.engineName(for: effect),
-                    params: params
-                )
+                if bleManager.useBridge {
+                    let params = BridgeManager.effectParams(from: ls, effect: effect)
+                    bleManager.bridgeManager.startSoftwareEffect(
+                        unicast: address,
+                        engine: BridgeManager.engineName(for: effect),
+                        params: params
+                    )
+                } else {
+                    // Direct BLE: fall back to hardware effect
+                    bleManager.setEffect(
+                        effectType: effect.rawValue,
+                        intensityPercent: state.intensity,
+                        frq: Int(state.effectFrequency),
+                        cctKelvin: Int(state.cctKelvin),
+                        copCarColor: state.copCarColor,
+                        effectMode: effectColorMode,
+                        hue: Int(state.hue),
+                        saturation: Int(state.saturation),
+                        targetAddress: address
+                    )
+                }
 
                 bleManager.targetUnicastAddress = savedAddress
             }
@@ -227,7 +242,7 @@ class CueEngine: ObservableObject {
     private func dimCueLights(_ cue: Cue) {
         guard let bm = bleManager else { return }
         for entry in cue.lightEntries {
-            bm.bridgeManager.setCCT(unicast: entry.unicastAddress, intensity: 0, cctKelvin: 5600, sleepMode: 0)
+            bm.setCCTWithSleep(intensity: 0, cctKelvin: 5600, sleepMode: 0, targetAddress: entry.unicastAddress)
         }
     }
 
@@ -253,7 +268,17 @@ class CueEngine: ObservableObject {
         delayWork = nil
         durationWork?.cancel()
         durationWork = nil
-        bleManager?.bridgeManager.stopAll()
+        stopAllEffects()
+    }
+
+    /// Stop all running effects — bridge uses stopAll, direct BLE sends effect-off.
+    private func stopAllEffects() {
+        guard let bm = bleManager else { return }
+        if bm.useBridge {
+            bm.bridgeManager.stopAll()
+        } else {
+            bm.stopEffect()
+        }
     }
 
 }

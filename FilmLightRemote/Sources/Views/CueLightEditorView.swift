@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Edit one light's state within a cue — connects directly to the light's
-/// BLE peripheral so the user sees their changes in real time.
+/// BLE peripheral (or via bridge) so the user sees their changes in real time.
 struct CueLightEditorView: View {
     @EnvironmentObject var bleManager: BLEManager
     @ObservedObject private var bridgeManager = BridgeManager.shared
@@ -11,6 +11,8 @@ struct CueLightEditorView: View {
 
     /// Unicast address before we switched to this light (restored on dismiss).
     @State private var previousUnicastAddress: UInt16 = 0
+
+    private var usingBridge: Bool { bridgeManager.isConnected }
 
     init(entry: LightCueEntry, onSave: @escaping (LightCueEntry) -> Void) {
         _entry = State(initialValue: entry)
@@ -25,6 +27,14 @@ struct CueLightEditorView: View {
         LightSessionView.intensityStep(for: entry.lightName)
     }
 
+    private var isLightReady: Bool {
+        if usingBridge {
+            return true
+        } else {
+            return bleManager.connectionState == .ready
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Header with connection status
@@ -34,10 +44,10 @@ struct CueLightEditorView: View {
                 Text(entry.lightName)
                     .font(.headline)
                 Spacer()
-                if !bridgeManager.isConnected {
+                if !usingBridge && bleManager.connectionState != .ready {
                     ProgressView()
                         .scaleEffect(0.7)
-                    Text("Bridge not connected")
+                    Text("Connecting via BLE...")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
@@ -45,14 +55,14 @@ struct CueLightEditorView: View {
             .padding()
             .background(Color(.systemGray6))
 
-            // Full LightControlView — sends live commands via bridge
+            // Full LightControlView — sends live commands
             LightControlView(
                 lightState: lightState,
                 cctRange: cctRange,
                 intensityStep: intensityStep
             )
-            .allowsHitTesting(bridgeManager.isConnected)
-            .opacity(bridgeManager.isConnected ? 1.0 : 0.5)
+            .allowsHitTesting(isLightReady)
+            .opacity(isLightReady ? 1.0 : 0.5)
         }
         .navigationTitle("Edit Light State")
         .navigationBarTitleDisplayMode(.inline)
@@ -76,15 +86,26 @@ struct CueLightEditorView: View {
             // Block status feedback — the proxy light's status would overwrite sliders
             bleManager.suppressStatusUpdates = true
 
-            // Point commands at this light and connect via bridge
+            // Point commands at this light
             bleManager.targetUnicastAddress = entry.unicastAddress
-            bridgeManager.connectLight(unicast: entry.unicastAddress)
+
+            if usingBridge {
+                bridgeManager.connectLight(unicast: entry.unicastAddress)
+            } else {
+                // Look up peripheral identifier from saved lights
+                if let saved = KeyStorage.shared.savedLights.first(where: { $0.id == entry.lightId }) {
+                    bleManager.connectToKnownPeripheral(identifier: saved.peripheralIdentifier)
+                }
+            }
 
             entry.state.apply(to: lightState)
         }
         .onDisappear {
             bleManager.suppressStatusUpdates = false
             bleManager.targetUnicastAddress = previousUnicastAddress
+            if !usingBridge {
+                bleManager.disconnect()
+            }
         }
     }
 }
