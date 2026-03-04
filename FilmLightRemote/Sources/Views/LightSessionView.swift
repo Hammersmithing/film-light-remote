@@ -24,7 +24,10 @@ struct LightSessionView: View {
         NavigationStack {
             Group {
                 if isLightConnected {
-                    LightControlView(lightState: lightState, cctRange: Self.cctRange(for: savedLight.name), intensityStep: Self.intensityStep(for: savedLight.name))
+                    VStack(spacing: 0) {
+                        SlotBar(lightState: lightState, lightId: savedLight.id)
+                        LightControlView(lightState: lightState, cctRange: Self.cctRange(for: savedLight.name), intensityStep: Self.intensityStep(for: savedLight.name))
+                    }
                 } else if usingBridge, let error = bridgeManager.lastError {
                     failedView(message: error)
                 } else if case .failed(let msg) = bleManager.connectionState {

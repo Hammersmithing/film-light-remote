@@ -214,7 +214,7 @@ struct CueState: Codable {
         case .cct:
             return "\(Int(intensity))% \(Int(cctKelvin))K"
         case .hsi:
-            return "H\(Int(hue)) \(Int(intensity))%"
+            return "H\(Int(hue)) S\(Int(saturation))"
         case .effects:
             return LightEffect(rawValue: effectId)?.name ?? "FX"
         }
