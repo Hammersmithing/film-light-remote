@@ -2,15 +2,14 @@ import SwiftUI
 
 /// QLab-style cue runner — shows cues in a list with a big GO button.
 ///
-/// Connection strategy: All commands route through the ESP32 bridge via WebSocket.
-/// The bridge handles BLE connections to individual lights.
+/// Commands route through BLEManager which handles mesh proxy writes directly.
 struct CueListDetailView: View {
     @EnvironmentObject var bleManager: BLEManager
-    @ObservedObject private var bridgeManager = BridgeManager.shared
     @StateObject private var engine = CueEngine()
     @State private var cueList: CueList
     @State private var showingAddCue = false
     @State private var editingCue: Cue?
+    @State private var pendingGo = false
     var onUpdate: () -> Void
 
     init(cueList: CueList, onUpdate: @escaping () -> Void) {
@@ -19,7 +18,7 @@ struct CueListDetailView: View {
     }
 
     private var isReady: Bool {
-        bridgeManager.isConnected || bleManager.connectionState == .ready
+        bleManager.connectionState == .ready
     }
 
     var body: some View {
@@ -70,6 +69,13 @@ struct CueListDetailView: View {
         }
         .onAppear {
             engine.bleManager = bleManager
+            connectToProxyIfNeeded()
+        }
+        .onChange(of: bleManager.connectionState) { _ in
+            if bleManager.connectionState == .ready && pendingGo {
+                pendingGo = false
+                fireCue()
+            }
         }
     }
 
@@ -77,21 +83,12 @@ struct CueListDetailView: View {
 
     private var connectionBanner: some View {
         HStack(spacing: 6) {
-            if isReady {
-                Circle()
-                    .fill(Color.green)
-                    .frame(width: 8, height: 8)
-                Text("Bridge connected")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            } else {
-                Circle()
-                    .fill(Color.red)
-                    .frame(width: 8, height: 8)
-                Text("Bridge not connected")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
+            Circle()
+                .fill(isReady ? Color.green : (pendingGo || bleManager.connectionState == .connecting || bleManager.connectionState == .discoveringServices ? Color.orange : Color.red))
+                .frame(width: 8, height: 8)
+            Text(isReady ? "BLE connected" : (pendingGo || bleManager.connectionState == .connecting || bleManager.connectionState == .discoveringServices ? "Connecting..." : "Not connected"))
+                .font(.caption2)
+                .foregroundColor(.secondary)
             Spacer()
         }
         .padding(.horizontal)
@@ -181,11 +178,11 @@ struct CueListDetailView: View {
                     .font(.system(size: 36, weight: .black, design: .rounded))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 20)
-                    .background(isReady ? Color.green : Color.gray)
+                    .background(cueList.cues.isEmpty ? Color.gray : Color.green)
                     .foregroundColor(.white)
                     .cornerRadius(16)
             }
-            .disabled(cueList.cues.isEmpty || !isReady)
+            .disabled(cueList.cues.isEmpty)
         }
         .padding()
     }
@@ -201,12 +198,30 @@ struct CueListDetailView: View {
 
     private func fireCue() {
         guard !cueList.cues.isEmpty else { return }
+        if !isReady {
+            pendingGo = true
+            connectToProxyIfNeeded()
+            return
+        }
         let index = engine.currentCueIndex
         guard index < cueList.cues.count else {
             engine.reset()
             return
         }
         engine.fireCue(cueList.cues[index], allCues: cueList.cues)
+    }
+
+    private func connectToProxyIfNeeded() {
+        guard !isReady else { return }
+        let savedLights = KeyStorage.shared.savedLights
+        for cue in cueList.cues {
+            for entry in cue.lightEntries {
+                if let saved = savedLights.first(where: { $0.id == entry.lightId }) {
+                    bleManager.connectToKnownPeripheral(identifier: saved.peripheralIdentifier)
+                    return
+                }
+            }
+        }
     }
 
     private func saveCueList() {

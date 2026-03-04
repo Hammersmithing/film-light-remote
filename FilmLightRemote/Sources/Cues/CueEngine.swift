@@ -238,7 +238,7 @@ class CueEngine: ObservableObject {
 
     // MARK: - Dim Lights
 
-    /// Send 0% intensity to every light in the given cue for a clean break between cues.
+    /// Dim every light in the given cue to 0% for a clean break between cues.
     private func dimCueLights(_ cue: Cue) {
         guard let bm = bleManager else { return }
         for entry in cue.lightEntries {
