@@ -414,7 +414,7 @@ class BLEManager: NSObject, ObservableObject {
     /// Set CCT with explicit values and sleepMode control for instant on/off transitions.
     /// sleepMode=0 puts the light to sleep (instant off), sleepMode=1 wakes it (on).
     /// Pass targetAddress to override the default targetUnicastAddress (used by background engines).
-    func setCCTWithSleep(intensity percent: Double, cctKelvin: Int, sleepMode: Int, targetAddress: UInt16? = nil, viaPeripheral: UUID? = nil) {
+    func setCCTWithSleep(intensity percent: Double, cctKelvin: Int, sleepMode: Int, gm: Int = 100, gmFlag: Int = 0, targetAddress: UInt16? = nil, viaPeripheral: UUID? = nil) {
         let dst = targetAddress ?? targetUnicastAddress
 
         if bridgeManager.isConnected {
@@ -426,13 +426,13 @@ class BLEManager: NSObject, ObservableObject {
         let cmd = CCTProtocol(
             intensity: protocolIntensity,
             cct: cctKelvin / 10,
-            gm: 100,
-            gmFlag: 0,
+            gm: gm,
+            gmFlag: gmFlag,
             sleepMode: sleepMode,
             autoPatchFlag: 0
         )
         let payload = cmd.getSendData()
-        log("setCCTWithSleep(i:\(percent)% pv:\(protocolIntensity) cct:\(cctKelvin)K sleep:\(sleepMode)) payload: \(payload.map { String(format: "%02X", $0) }.joined(separator: " "))")
+        log("setCCTWithSleep(i:\(percent)% pv:\(protocolIntensity) cct:\(cctKelvin)K gm:\(gm) sleep:\(sleepMode)) payload: \(payload.map { String(format: "%02X", $0) }.joined(separator: " "))")
         var accessMessage: [UInt8] = [0x26]
         accessMessage.append(contentsOf: payload)
 
@@ -469,15 +469,15 @@ class BLEManager: NSObject, ObservableObject {
     /// Current CCT value for combined commands
     private var currentCCT: Int = 5600
 
-    func setCCT(_ kelvin: Int) {
+    func setCCT(_ kelvin: Int, gm: Int = 100) {
         currentCCT = kelvin
         currentMode = "cct"
         guard let peripheral = connectedPeripheral else { return }
 
-        log("setCCT(\(kelvin)K) target=0x\(String(format: "%04X", targetUnicastAddress))")
+        log("setCCT(\(kelvin)K gm:\(gm)) target=0x\(String(format: "%04X", targetUnicastAddress))")
 
         // Sidus opcode 0x26 + CCTProtocol — sets both intensity and CCT
-        let cctCmd = CCTProtocol(intensityPercent: Double(currentIntensity), cctKelvin: kelvin)
+        let cctCmd = CCTProtocol(intensityPercent: Double(currentIntensity), cctKelvin: kelvin, gm: gm)
         let payload = cctCmd.getSendData()
         var accessMessage: [UInt8] = [0x26]
         accessMessage.append(contentsOf: payload)

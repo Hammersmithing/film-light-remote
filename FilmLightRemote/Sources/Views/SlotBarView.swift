@@ -155,7 +155,8 @@ struct SlotBar: View {
                 bleManager.setCCTWithSleep(
                     intensity: lightState.intensity,
                     cctKelvin: Int(lightState.cctKelvin),
-                    sleepMode: 1)
+                    sleepMode: 1,
+                    gm: lightState.gmTint)
             case .hsi:
                 bleManager.setHSIWithSleep(
                     intensity: lightState.hsiIntensity,

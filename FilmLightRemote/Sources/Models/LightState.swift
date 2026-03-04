@@ -96,6 +96,9 @@ class LightState: ObservableObject {
     // CCT Mode (2700K - 6500K typical, Storm 80c may differ)
     @Published var cctKelvin: Double = 5600.0
 
+    // Green-Magenta tint (0-200, 100 = neutral; <100 = green, >100 = magenta)
+    @Published var gmTint: Int = 100
+
     // HSI Mode
     @Published var hue: Double = 0.0          // 0-360
     @Published var saturation: Double = 100.0 // 0-100
@@ -245,7 +248,8 @@ class LightState: ObservableObject {
             effectColorMode: effectColorMode.rawValue,
             partyColors: partyColors,
             partyTransition: partyTransition,
-            partyHueBias: partyHueBias
+            partyHueBias: partyHueBias,
+            gmTint: gmTint
         )
         if let encoded = try? JSONEncoder().encode(data) {
             UserDefaults.standard.set(encoded, forKey: Self.statePrefix + id.uuidString)
@@ -298,6 +302,9 @@ class LightState: ObservableObject {
         if let bias = state.partyHueBias {
             partyHueBias = bias
         }
+        if let gm = state.gmTint {
+            gmTint = gm
+        }
     }
 
     private struct PersistedState: Codable {
@@ -338,6 +345,7 @@ class LightState: ObservableObject {
         var partyColors: [Double]?
         var partyTransition: Double?
         var partyHueBias: Double?
+        var gmTint: Int?
     }
 
     // MARK: - Presets

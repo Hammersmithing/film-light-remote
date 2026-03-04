@@ -327,16 +327,70 @@ struct CCTControls: View {
                         .onChange(of: lightState.cctKelvin) { _ in
                             if previewMode { return }
                             throttle.send { [bleManager, lightState] in
-                                bleManager.setCCT(Int(lightState.cctKelvin))
+                                bleManager.setCCT(Int(lightState.cctKelvin), gm: lightState.gmTint)
                             }
                         }
                 }
             }
 
+            // GM Tint slider
+            GMTintSlider(lightState: lightState)
         }
         .padding()
         .background(Color(.systemGray6))
         .cornerRadius(12)
+    }
+}
+
+// MARK: - GM Tint Slider (Reusable)
+struct GMTintSlider: View {
+    @EnvironmentObject var bleManager: BLEManager
+    @Environment(\.cuePreviewMode) private var previewMode
+    @ObservedObject var lightState: LightState
+    private let throttle = ThrottledSender()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("Green")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Text("Tint: \(lightState.gmTint - 100 > 0 ? "+" : "")\(lightState.gmTint - 100)")
+                    .font(.caption)
+                    .monospacedDigit()
+                Spacer()
+                Text("Magenta")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color.green.opacity(0.7),
+                        Color.white,
+                        Color.pink.opacity(0.7)
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .frame(height: 8)
+                .cornerRadius(4)
+
+                Slider(value: Binding(
+                    get: { Double(lightState.gmTint) },
+                    set: { lightState.gmTint = Int($0) }
+                ), in: 0...200, step: 1)
+                    .tint(.clear)
+                    .onChange(of: lightState.gmTint) { _ in
+                        if previewMode { return }
+                        throttle.send { [bleManager, lightState] in
+                            bleManager.setCCT(Int(lightState.cctKelvin), gm: lightState.gmTint)
+                        }
+                    }
+            }
+        }
     }
 }
 
@@ -1092,7 +1146,8 @@ private struct FaultyBulbDetail: View {
                 bleManager.setCCTWithSleep(
                     intensity: intensity,
                     cctKelvin: Int(lightState.cctKelvin),
-                    sleepMode: 1
+                    sleepMode: 1,
+                    gm: lightState.gmTint
                 )
             }
         }
