@@ -22,12 +22,28 @@ This applies to:
 - The `syncEngineParams()` and `sendColorNow()` methods in FaultyBulbDetail
 - Any LightState properties prefixed with `faultyBulb`
 
-## Effect Engine Files (separated for isolation)
+## Isolated Feature Folders
 
-Each engine is in its own file so changes to BLEManager.swift cannot accidentally modify them:
-- `FilmLightRemote/Sources/Effects/FaultyBulbEngine.swift` - LOCKED (see above)
-- `FilmLightRemote/Sources/Effects/PaparazziEngine.swift`
-- `FilmLightRemote/Sources/Effects/SoftwareEffectEngine.swift`
+Feature code is separated into dedicated folders so changes to BLEManager or Views can't accidentally modify them:
+
+### Effects (`FilmLightRemote/Sources/Effects/`)
+- `FaultyBulbEngine.swift` - LOCKED (see above)
+- `PaparazziEngine.swift`
+- `SoftwareEffectEngine.swift`
+
+### Cues & Timelines (`FilmLightRemote/Sources/Cues/`)
+- `CueModels.swift` — Cue, CueList, Timeline structs
+- `CueEngine.swift` — cue execution logic
+- `TimelineEngine.swift` — timeline execution logic
+- `CuesView.swift` — cue list management UI
+- `CueListDetailView.swift` — cue runner (GO button)
+- `CueEditorView.swift` — single cue editor
+- `CueLightEditorView.swift` — light state editor within a cue
+- `TimelineView.swift` — timeline UI
+
+### Groups (`FilmLightRemote/Sources/Groups/`)
+- `GroupsView.swift` — group management UI
+- `GroupSessionView.swift` — group control session
 
 ## Effect Engine Documentation
 

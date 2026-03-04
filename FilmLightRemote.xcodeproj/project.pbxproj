@@ -7,41 +7,41 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		01FEEF903B0AF1D14AFFEC9F /* GroupSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A805416946EFC09E7AD7AAF /* GroupSessionView.swift */; };
 		02FC3E4ABAA2162695E679F8 /* SlotBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12E807D406112C51C1E6893A /* SlotBarView.swift */; };
 		05FABD87145EA26E247C4182 /* TempoMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = AECCCC4F96EEC33B2FE31179 /* TempoMap.swift */; };
+		0884FDE455AD22F38BE819DE /* CueListDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D68D98C98A2D3073C097E1E8 /* CueListDetailView.swift */; };
 		0A9282FEA8918D629FAEED8D /* LightControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AAE3FBEA794C6D7DA1D597D /* LightControlView.swift */; };
-		0D15334CD4D58F3FDE219B6E /* CueEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE8C8946FCB7099BDACEBA8D /* CueEngine.swift */; };
 		0D3C89539494FC3008F73C55 /* FaultyBulbEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AD4375135C907A79C8C557D /* FaultyBulbEngine.swift */; };
 		108A402406ACF711F995424C /* PaparazziEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCDC89077096E1BE50ABA901 /* PaparazziEngine.swift */; };
-		19108355F13B0CBA1C394927 /* GroupsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 003D72C9CC3BAC68826B4D09 /* GroupsView.swift */; };
 		237646B1C10C3EAD06E7E978 /* DebugLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E0AD22691AC13AA834B0487 /* DebugLogView.swift */; };
 		258C8B93788CECD7AFD36406 /* BridgeConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA0E27490E3D1053D3E462D8 /* BridgeConnectionView.swift */; };
 		33280DFB3AFB4CCC47E14D14 /* ProvisioningPDU.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8977D6B232922EA4FE6BF488 /* ProvisioningPDU.swift */; };
 		362F8D7C35C5FB9EEA8E1D22 /* ProvisioningManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B4559D072EE93D28896EEFC /* ProvisioningManager.swift */; };
-		3C2226A99945AA38C317B32C /* TimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E01DC5BED899678222698C53 /* TimelineView.swift */; };
-		4C02FFDF7842C304FFF438F7 /* CueLightEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DBC0F7B709FC8E1B3A97DBB /* CueLightEditorView.swift */; };
+		4278642B6CABF267D04170DA /* CueLightEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B4D50049C3B5BFBBE018BAE /* CueLightEditorView.swift */; };
 		52A6965765429E0246473736 /* BridgeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68A40A94EC401278951BCC9A /* BridgeManager.swift */; };
-		59DD1DEC1955C3F3D7697E10 /* CueModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CEB0041CF4B8860FE17279F /* CueModels.swift */; };
-		7AF9869829C1969F2F72EAB8 /* TimelineEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB72D4003099478B9EF8306 /* TimelineEngine.swift */; };
+		5FE8D353CC7846ADD3FA1D7D /* GroupsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FAB7F17F1B5E0E08287F2ED /* GroupsView.swift */; };
+		6DF72516C9CF13CE4B3E4A38 /* CueModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B282A4D61E0DDE95CCDA0C3 /* CueModels.swift */; };
 		81B584C20CC839CFFC218D1A /* MetronomeEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 547F9EEDFE799B05017A4518 /* MetronomeEngine.swift */; };
-		82B808439BAFBD9469C5393D /* CuesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F1770C169E5D4AC2CA007AF /* CuesView.swift */; };
 		8B6EEC8203A2E7C5748F65FC /* SoftwareEffectEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72AA55C24514038EC2E49452 /* SoftwareEffectEngine.swift */; };
-		8EE3BFECD972D6D9B1D33CD8 /* GroupSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFA8FCD0FFAFEAF25F0BDAFF /* GroupSessionView.swift */; };
 		906941AABFDCB09F3F60EE54 /* SidusMeshConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD8F4D6567CD5F653F4FF720 /* SidusMeshConfig.swift */; };
 		967A6D3B3784BF433641BE94 /* LightState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12300A661DDD19AB7992487 /* LightState.swift */; };
 		97580AC1BB44F880636E0AAE /* MyLightsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE57E401E0866863DC5B1146 /* MyLightsView.swift */; };
-		98D149AD69CBB83100085E1B /* CueListDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90C7D0EB41C750793CA11748 /* CueListDetailView.swift */; };
 		9CA18D2A805EBEDF789859F4 /* MeshCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992513CD5F1FAA9B84055887 /* MeshCrypto.swift */; };
 		9F4E8D7B81AF8C471777253E /* SidusProtocols.swift in Sources */ = {isa = PBXBuildFile; fileRef = D25EB2E3FBCB7C6799D4542F /* SidusProtocols.swift */; };
 		AD22780D400186BC14DF823B /* FilmLightRemoteApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46C0D7611C64BE31809559B3 /* FilmLightRemoteApp.swift */; };
 		B2A4A24741DE03CAEB2663B2 /* ProvisioningCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = 068ECC53454507BE5CBCC478 /* ProvisioningCrypto.swift */; };
+		B3938579AA16D52614501B34 /* CuesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D118ABB425C32881452531C /* CuesView.swift */; };
 		B79946754168679DC97B8D38 /* ProvisioningView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D61846E9A4C95FB19D8F15C6 /* ProvisioningView.swift */; };
 		C09358CAB6C704237479F3FE /* BLEManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E877B3320FD9730E91EC522 /* BLEManager.swift */; };
 		C137F62B9A5A9DD8C37EA7C0 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6460FFFCC181B4F8B9CCDC0D /* ContentView.swift */; };
+		D6F1B59280FC04B7A0B9B4B3 /* TimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF4F3BDCEDA10A49829F4884 /* TimelineView.swift */; };
 		D7C6F37B47EF51F882855AA0 /* KeyStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B5A689371BF2929D94096E9 /* KeyStorage.swift */; };
+		D96EBD769F5E486303B3DFCB /* TimelineEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C813448256910F44DBFDB69F /* TimelineEngine.swift */; };
+		DDFBE76E302764FF74CA9663 /* CueEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 917534BEE4BA3554BE79BE81 /* CueEditorView.swift */; };
 		E3F769A0C59620618AE4CFDB /* SavedLight.swift in Sources */ = {isa = PBXBuildFile; fileRef = B18F642EB0F7B00AEA977D0B /* SavedLight.swift */; };
+		EE53C70A02790CA33D0AAEC3 /* CueEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 701EE833E28262560D5DEDE1 /* CueEngine.swift */; };
 		EF1FBB863574D0C9C753A024 /* LightSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6813B950AB3CC3D52353986 /* LightSessionView.swift */; };
-		F1A4833AC0F36D20076D71F7 /* CueEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F39E9E4EEF2910DFED5E32F0 /* CueEditorView.swift */; };
 		F5C6FF848AAE9ED7FDA235B2 /* AddLightFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BED2B28AB1F4072AC772DDBB /* AddLightFlowView.swift */; };
 		F6520380E97A2CF03A4D2759 /* ScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7516003A19D055B376461731 /* ScannerView.swift */; };
 		FA5D2177F66FE33715125982 /* CryptoSwift in Frameworks */ = {isa = PBXBuildFile; productRef = 6B538549EB6B5D82531EAA96 /* CryptoSwift */; };
@@ -49,45 +49,45 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		003D72C9CC3BAC68826B4D09 /* GroupsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupsView.swift; sourceTree = "<group>"; };
 		068ECC53454507BE5CBCC478 /* ProvisioningCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProvisioningCrypto.swift; sourceTree = "<group>"; };
 		12E807D406112C51C1E6893A /* SlotBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlotBarView.swift; sourceTree = "<group>"; };
 		1AD4375135C907A79C8C557D /* FaultyBulbEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FaultyBulbEngine.swift; sourceTree = "<group>"; };
 		1B5A689371BF2929D94096E9 /* KeyStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyStorage.swift; sourceTree = "<group>"; };
 		1E877B3320FD9730E91EC522 /* BLEManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLEManager.swift; sourceTree = "<group>"; };
+		2A805416946EFC09E7AD7AAF /* GroupSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupSessionView.swift; sourceTree = "<group>"; };
 		2B4559D072EE93D28896EEFC /* ProvisioningManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProvisioningManager.swift; sourceTree = "<group>"; };
-		2DBC0F7B709FC8E1B3A97DBB /* CueLightEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueLightEditorView.swift; sourceTree = "<group>"; };
+		2D118ABB425C32881452531C /* CuesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CuesView.swift; sourceTree = "<group>"; };
+		3FAB7F17F1B5E0E08287F2ED /* GroupsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupsView.swift; sourceTree = "<group>"; };
 		46C0D7611C64BE31809559B3 /* FilmLightRemoteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmLightRemoteApp.swift; sourceTree = "<group>"; };
-		4CEB0041CF4B8860FE17279F /* CueModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueModels.swift; sourceTree = "<group>"; };
 		547F9EEDFE799B05017A4518 /* MetronomeEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetronomeEngine.swift; sourceTree = "<group>"; };
+		5B4D50049C3B5BFBBE018BAE /* CueLightEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueLightEditorView.swift; sourceTree = "<group>"; };
 		5E0AD22691AC13AA834B0487 /* DebugLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogView.swift; sourceTree = "<group>"; };
 		6460FFFCC181B4F8B9CCDC0D /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		68A40A94EC401278951BCC9A /* BridgeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeManager.swift; sourceTree = "<group>"; };
+		701EE833E28262560D5DEDE1 /* CueEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueEngine.swift; sourceTree = "<group>"; };
 		72AA55C24514038EC2E49452 /* SoftwareEffectEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoftwareEffectEngine.swift; sourceTree = "<group>"; };
 		7516003A19D055B376461731 /* ScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerView.swift; sourceTree = "<group>"; };
+		7B282A4D61E0DDE95CCDA0C3 /* CueModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueModels.swift; sourceTree = "<group>"; };
 		8977D6B232922EA4FE6BF488 /* ProvisioningPDU.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProvisioningPDU.swift; sourceTree = "<group>"; };
-		8F1770C169E5D4AC2CA007AF /* CuesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CuesView.swift; sourceTree = "<group>"; };
-		90C7D0EB41C750793CA11748 /* CueListDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueListDetailView.swift; sourceTree = "<group>"; };
+		917534BEE4BA3554BE79BE81 /* CueEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueEditorView.swift; sourceTree = "<group>"; };
 		992513CD5F1FAA9B84055887 /* MeshCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshCrypto.swift; sourceTree = "<group>"; };
 		9AAE3FBEA794C6D7DA1D597D /* LightControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightControlView.swift; sourceTree = "<group>"; };
-		AAB72D4003099478B9EF8306 /* TimelineEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineEngine.swift; sourceTree = "<group>"; };
 		AD8F4D6567CD5F653F4FF720 /* SidusMeshConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidusMeshConfig.swift; sourceTree = "<group>"; };
 		AECCCC4F96EEC33B2FE31179 /* TempoMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TempoMap.swift; sourceTree = "<group>"; };
 		B18F642EB0F7B00AEA977D0B /* SavedLight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedLight.swift; sourceTree = "<group>"; };
 		BED2B28AB1F4072AC772DDBB /* AddLightFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddLightFlowView.swift; sourceTree = "<group>"; };
 		C12300A661DDD19AB7992487 /* LightState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightState.swift; sourceTree = "<group>"; };
-		CE8C8946FCB7099BDACEBA8D /* CueEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueEngine.swift; sourceTree = "<group>"; };
+		C813448256910F44DBFDB69F /* TimelineEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineEngine.swift; sourceTree = "<group>"; };
 		D25EB2E3FBCB7C6799D4542F /* SidusProtocols.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidusProtocols.swift; sourceTree = "<group>"; };
 		D61846E9A4C95FB19D8F15C6 /* ProvisioningView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProvisioningView.swift; sourceTree = "<group>"; };
+		D68D98C98A2D3073C097E1E8 /* CueListDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueListDetailView.swift; sourceTree = "<group>"; };
 		DA0E27490E3D1053D3E462D8 /* BridgeConnectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeConnectionView.swift; sourceTree = "<group>"; };
 		DCBC503C53982BEB3199AF30 /* FilmLightRemote.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = FilmLightRemote.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DE57E401E0866863DC5B1146 /* MyLightsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyLightsView.swift; sourceTree = "<group>"; };
-		E01DC5BED899678222698C53 /* TimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineView.swift; sourceTree = "<group>"; };
+		DF4F3BDCEDA10A49829F4884 /* TimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineView.swift; sourceTree = "<group>"; };
 		E6813B950AB3CC3D52353986 /* LightSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightSessionView.swift; sourceTree = "<group>"; };
 		F0B2D3A837E5C066289669C3 /* MeshConfigManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshConfigManager.swift; sourceTree = "<group>"; };
-		F39E9E4EEF2910DFED5E32F0 /* CueEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueEditorView.swift; sourceTree = "<group>"; };
 		FCDC89077096E1BE50ABA901 /* PaparazziEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaparazziEngine.swift; sourceTree = "<group>"; };
-		FFA8FCD0FFAFEAF25F0BDAFF /* GroupSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupSessionView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -110,6 +110,15 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		3F3F75B1377FFC89D9818ECD /* Groups */ = {
+			isa = PBXGroup;
+			children = (
+				2A805416946EFC09E7AD7AAF /* GroupSessionView.swift */,
+				3FAB7F17F1B5E0E08287F2ED /* GroupsView.swift */,
+			);
+			path = Groups;
+			sourceTree = "<group>";
+		};
 		55BDE6D7A15758D642C1F023 /* Effects */ = {
 			isa = PBXGroup;
 			children = (
@@ -126,28 +135,35 @@
 				BED2B28AB1F4072AC772DDBB /* AddLightFlowView.swift */,
 				DA0E27490E3D1053D3E462D8 /* BridgeConnectionView.swift */,
 				6460FFFCC181B4F8B9CCDC0D /* ContentView.swift */,
-				F39E9E4EEF2910DFED5E32F0 /* CueEditorView.swift */,
-				2DBC0F7B709FC8E1B3A97DBB /* CueLightEditorView.swift */,
-				90C7D0EB41C750793CA11748 /* CueListDetailView.swift */,
-				8F1770C169E5D4AC2CA007AF /* CuesView.swift */,
 				5E0AD22691AC13AA834B0487 /* DebugLogView.swift */,
-				FFA8FCD0FFAFEAF25F0BDAFF /* GroupSessionView.swift */,
-				003D72C9CC3BAC68826B4D09 /* GroupsView.swift */,
 				9AAE3FBEA794C6D7DA1D597D /* LightControlView.swift */,
 				E6813B950AB3CC3D52353986 /* LightSessionView.swift */,
 				DE57E401E0866863DC5B1146 /* MyLightsView.swift */,
 				D61846E9A4C95FB19D8F15C6 /* ProvisioningView.swift */,
 				7516003A19D055B376461731 /* ScannerView.swift */,
 				12E807D406112C51C1E6893A /* SlotBarView.swift */,
-				E01DC5BED899678222698C53 /* TimelineView.swift */,
 			);
 			path = Views;
+			sourceTree = "<group>";
+		};
+		BAEB01213838C19F128DBAA7 /* Cues */ = {
+			isa = PBXGroup;
+			children = (
+				917534BEE4BA3554BE79BE81 /* CueEditorView.swift */,
+				701EE833E28262560D5DEDE1 /* CueEngine.swift */,
+				5B4D50049C3B5BFBBE018BAE /* CueLightEditorView.swift */,
+				D68D98C98A2D3073C097E1E8 /* CueListDetailView.swift */,
+				7B282A4D61E0DDE95CCDA0C3 /* CueModels.swift */,
+				2D118ABB425C32881452531C /* CuesView.swift */,
+				C813448256910F44DBFDB69F /* TimelineEngine.swift */,
+				DF4F3BDCEDA10A49829F4884 /* TimelineView.swift */,
+			);
+			path = Cues;
 			sourceTree = "<group>";
 		};
 		D1A660717A0D303C1804688C /* Models */ = {
 			isa = PBXGroup;
 			children = (
-				4CEB0041CF4B8860FE17279F /* CueModels.swift */,
 				C12300A661DDD19AB7992487 /* LightState.swift */,
 				B18F642EB0F7B00AEA977D0B /* SavedLight.swift */,
 			);
@@ -159,7 +175,6 @@
 			children = (
 				1E877B3320FD9730E91EC522 /* BLEManager.swift */,
 				68A40A94EC401278951BCC9A /* BridgeManager.swift */,
-				CE8C8946FCB7099BDACEBA8D /* CueEngine.swift */,
 				1B5A689371BF2929D94096E9 /* KeyStorage.swift */,
 				F0B2D3A837E5C066289669C3 /* MeshConfigManager.swift */,
 				992513CD5F1FAA9B84055887 /* MeshCrypto.swift */,
@@ -170,7 +185,6 @@
 				AD8F4D6567CD5F653F4FF720 /* SidusMeshConfig.swift */,
 				D25EB2E3FBCB7C6799D4542F /* SidusProtocols.swift */,
 				AECCCC4F96EEC33B2FE31179 /* TempoMap.swift */,
-				AAB72D4003099478B9EF8306 /* TimelineEngine.swift */,
 			);
 			path = BLE;
 			sourceTree = "<group>";
@@ -203,7 +217,9 @@
 			children = (
 				E8D242696B7DDE837BDBD429 /* App */,
 				D6B6E752036D0EB0FAF46F56 /* BLE */,
+				BAEB01213838C19F128DBAA7 /* Cues */,
 				55BDE6D7A15758D642C1F023 /* Effects */,
+				3F3F75B1377FFC89D9818ECD /* Groups */,
 				D1A660717A0D303C1804688C /* Models */,
 				F5E3FBD50A7DC564BCE49F79 /* Utils */,
 				A0AA491C738FD6E6910A8773 /* Views */,
@@ -281,17 +297,17 @@
 				258C8B93788CECD7AFD36406 /* BridgeConnectionView.swift in Sources */,
 				52A6965765429E0246473736 /* BridgeManager.swift in Sources */,
 				C137F62B9A5A9DD8C37EA7C0 /* ContentView.swift in Sources */,
-				F1A4833AC0F36D20076D71F7 /* CueEditorView.swift in Sources */,
-				0D15334CD4D58F3FDE219B6E /* CueEngine.swift in Sources */,
-				4C02FFDF7842C304FFF438F7 /* CueLightEditorView.swift in Sources */,
-				98D149AD69CBB83100085E1B /* CueListDetailView.swift in Sources */,
-				59DD1DEC1955C3F3D7697E10 /* CueModels.swift in Sources */,
-				82B808439BAFBD9469C5393D /* CuesView.swift in Sources */,
+				DDFBE76E302764FF74CA9663 /* CueEditorView.swift in Sources */,
+				EE53C70A02790CA33D0AAEC3 /* CueEngine.swift in Sources */,
+				4278642B6CABF267D04170DA /* CueLightEditorView.swift in Sources */,
+				0884FDE455AD22F38BE819DE /* CueListDetailView.swift in Sources */,
+				6DF72516C9CF13CE4B3E4A38 /* CueModels.swift in Sources */,
+				B3938579AA16D52614501B34 /* CuesView.swift in Sources */,
 				237646B1C10C3EAD06E7E978 /* DebugLogView.swift in Sources */,
 				0D3C89539494FC3008F73C55 /* FaultyBulbEngine.swift in Sources */,
 				AD22780D400186BC14DF823B /* FilmLightRemoteApp.swift in Sources */,
-				8EE3BFECD972D6D9B1D33CD8 /* GroupSessionView.swift in Sources */,
-				19108355F13B0CBA1C394927 /* GroupsView.swift in Sources */,
+				01FEEF903B0AF1D14AFFEC9F /* GroupSessionView.swift in Sources */,
+				5FE8D353CC7846ADD3FA1D7D /* GroupsView.swift in Sources */,
 				D7C6F37B47EF51F882855AA0 /* KeyStorage.swift in Sources */,
 				0A9282FEA8918D629FAEED8D /* LightControlView.swift in Sources */,
 				EF1FBB863574D0C9C753A024 /* LightSessionView.swift in Sources */,
@@ -312,8 +328,8 @@
 				02FC3E4ABAA2162695E679F8 /* SlotBarView.swift in Sources */,
 				8B6EEC8203A2E7C5748F65FC /* SoftwareEffectEngine.swift in Sources */,
 				05FABD87145EA26E247C4182 /* TempoMap.swift in Sources */,
-				7AF9869829C1969F2F72EAB8 /* TimelineEngine.swift in Sources */,
-				3C2226A99945AA38C317B32C /* TimelineView.swift in Sources */,
+				D96EBD769F5E486303B3DFCB /* TimelineEngine.swift in Sources */,
+				D6F1B59280FC04B7A0B9B4B3 /* TimelineView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -2,6 +2,8 @@
 
 Each software effect engine lives in its own isolated file under `FilmLightRemote/Sources/Effects/`. The UI for each effect is in `FilmLightRemote/Sources/Views/LightControlView.swift`.
 
+Cue/timeline code is similarly isolated in `FilmLightRemote/Sources/Cues/`, and group code in `FilmLightRemote/Sources/Groups/`. See CLAUDE.md for the full listing.
+
 ---
 
 ## FaultyBulbEngine (`FaultyBulbEngine.swift`) - LOCKED
