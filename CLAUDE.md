@@ -5,7 +5,7 @@
 The following effect engines are **locked** and must NOT be edited without explicit user permission:
 
 ### FaultyBulbEngine
-- **File:** `FilmLightRemote/Sources/BLE/FaultyBulbEngine.swift` (entire file is locked)
+- **File:** `FilmLightRemote/Sources/Effects/FaultyBulbEngine.swift` (entire file is locked)
 - **UI:** `FaultyBulbDetail` struct in `FilmLightRemote/Sources/Views/LightControlView.swift`
 - **Status:** LOCKED
 - **Reason:** Extensively tested and tuned. All parameters (flicker range, fault bias, recovery, warmth, transition, points, frequency, inverse) are finalized.
@@ -25,9 +25,9 @@ This applies to:
 ## Effect Engine Files (separated for isolation)
 
 Each engine is in its own file so changes to BLEManager.swift cannot accidentally modify them:
-- `FilmLightRemote/Sources/BLE/FaultyBulbEngine.swift` - LOCKED (see above)
-- `FilmLightRemote/Sources/BLE/PaparazziEngine.swift`
-- `FilmLightRemote/Sources/BLE/SoftwareEffectEngine.swift`
+- `FilmLightRemote/Sources/Effects/FaultyBulbEngine.swift` - LOCKED (see above)
+- `FilmLightRemote/Sources/Effects/PaparazziEngine.swift`
+- `FilmLightRemote/Sources/Effects/SoftwareEffectEngine.swift`
 
 ## Effect Engine Documentation
 

@@ -1,6 +1,6 @@
 # Effects Engine Reference
 
-Each software effect engine lives in its own isolated file under `FilmLightRemote/Sources/BLE/`. The UI for each effect is in `FilmLightRemote/Sources/Views/LightControlView.swift`.
+Each software effect engine lives in its own isolated file under `FilmLightRemote/Sources/Effects/`. The UI for each effect is in `FilmLightRemote/Sources/Views/LightControlView.swift`.
 
 ---
 

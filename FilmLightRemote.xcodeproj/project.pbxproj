@@ -11,23 +11,23 @@
 		05FABD87145EA26E247C4182 /* TempoMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = AECCCC4F96EEC33B2FE31179 /* TempoMap.swift */; };
 		0A9282FEA8918D629FAEED8D /* LightControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AAE3FBEA794C6D7DA1D597D /* LightControlView.swift */; };
 		0D15334CD4D58F3FDE219B6E /* CueEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE8C8946FCB7099BDACEBA8D /* CueEngine.swift */; };
+		0D3C89539494FC3008F73C55 /* FaultyBulbEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AD4375135C907A79C8C557D /* FaultyBulbEngine.swift */; };
+		108A402406ACF711F995424C /* PaparazziEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCDC89077096E1BE50ABA901 /* PaparazziEngine.swift */; };
 		19108355F13B0CBA1C394927 /* GroupsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 003D72C9CC3BAC68826B4D09 /* GroupsView.swift */; };
 		237646B1C10C3EAD06E7E978 /* DebugLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E0AD22691AC13AA834B0487 /* DebugLogView.swift */; };
 		258C8B93788CECD7AFD36406 /* BridgeConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA0E27490E3D1053D3E462D8 /* BridgeConnectionView.swift */; };
 		33280DFB3AFB4CCC47E14D14 /* ProvisioningPDU.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8977D6B232922EA4FE6BF488 /* ProvisioningPDU.swift */; };
 		362F8D7C35C5FB9EEA8E1D22 /* ProvisioningManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B4559D072EE93D28896EEFC /* ProvisioningManager.swift */; };
 		3C2226A99945AA38C317B32C /* TimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E01DC5BED899678222698C53 /* TimelineView.swift */; };
-		3F06A6859402F4A6007780DD /* FaultyBulbEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E71AF8BEC899019B6DF66DE /* FaultyBulbEngine.swift */; };
 		4C02FFDF7842C304FFF438F7 /* CueLightEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DBC0F7B709FC8E1B3A97DBB /* CueLightEditorView.swift */; };
 		52A6965765429E0246473736 /* BridgeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68A40A94EC401278951BCC9A /* BridgeManager.swift */; };
 		59DD1DEC1955C3F3D7697E10 /* CueModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CEB0041CF4B8860FE17279F /* CueModels.swift */; };
-		7823E819D8C8E62526BD055A /* SoftwareEffectEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F206C1ACAA3FA90ACF71727 /* SoftwareEffectEngine.swift */; };
 		7AF9869829C1969F2F72EAB8 /* TimelineEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAB72D4003099478B9EF8306 /* TimelineEngine.swift */; };
 		81B584C20CC839CFFC218D1A /* MetronomeEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 547F9EEDFE799B05017A4518 /* MetronomeEngine.swift */; };
 		82B808439BAFBD9469C5393D /* CuesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F1770C169E5D4AC2CA007AF /* CuesView.swift */; };
+		8B6EEC8203A2E7C5748F65FC /* SoftwareEffectEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72AA55C24514038EC2E49452 /* SoftwareEffectEngine.swift */; };
 		8EE3BFECD972D6D9B1D33CD8 /* GroupSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFA8FCD0FFAFEAF25F0BDAFF /* GroupSessionView.swift */; };
 		906941AABFDCB09F3F60EE54 /* SidusMeshConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD8F4D6567CD5F653F4FF720 /* SidusMeshConfig.swift */; };
-		920B29B571253388129F89E5 /* PaparazziEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAF25791D7C373263047247B /* PaparazziEngine.swift */; };
 		967A6D3B3784BF433641BE94 /* LightState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12300A661DDD19AB7992487 /* LightState.swift */; };
 		97580AC1BB44F880636E0AAE /* MyLightsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE57E401E0866863DC5B1146 /* MyLightsView.swift */; };
 		98D149AD69CBB83100085E1B /* CueListDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90C7D0EB41C750793CA11748 /* CueListDetailView.swift */; };
@@ -52,18 +52,18 @@
 		003D72C9CC3BAC68826B4D09 /* GroupsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupsView.swift; sourceTree = "<group>"; };
 		068ECC53454507BE5CBCC478 /* ProvisioningCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProvisioningCrypto.swift; sourceTree = "<group>"; };
 		12E807D406112C51C1E6893A /* SlotBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlotBarView.swift; sourceTree = "<group>"; };
+		1AD4375135C907A79C8C557D /* FaultyBulbEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FaultyBulbEngine.swift; sourceTree = "<group>"; };
 		1B5A689371BF2929D94096E9 /* KeyStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyStorage.swift; sourceTree = "<group>"; };
-		1E71AF8BEC899019B6DF66DE /* FaultyBulbEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FaultyBulbEngine.swift; sourceTree = "<group>"; };
 		1E877B3320FD9730E91EC522 /* BLEManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLEManager.swift; sourceTree = "<group>"; };
 		2B4559D072EE93D28896EEFC /* ProvisioningManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProvisioningManager.swift; sourceTree = "<group>"; };
 		2DBC0F7B709FC8E1B3A97DBB /* CueLightEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueLightEditorView.swift; sourceTree = "<group>"; };
-		3F206C1ACAA3FA90ACF71727 /* SoftwareEffectEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoftwareEffectEngine.swift; sourceTree = "<group>"; };
 		46C0D7611C64BE31809559B3 /* FilmLightRemoteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilmLightRemoteApp.swift; sourceTree = "<group>"; };
 		4CEB0041CF4B8860FE17279F /* CueModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueModels.swift; sourceTree = "<group>"; };
 		547F9EEDFE799B05017A4518 /* MetronomeEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetronomeEngine.swift; sourceTree = "<group>"; };
 		5E0AD22691AC13AA834B0487 /* DebugLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogView.swift; sourceTree = "<group>"; };
 		6460FFFCC181B4F8B9CCDC0D /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		68A40A94EC401278951BCC9A /* BridgeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeManager.swift; sourceTree = "<group>"; };
+		72AA55C24514038EC2E49452 /* SoftwareEffectEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoftwareEffectEngine.swift; sourceTree = "<group>"; };
 		7516003A19D055B376461731 /* ScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerView.swift; sourceTree = "<group>"; };
 		8977D6B232922EA4FE6BF488 /* ProvisioningPDU.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProvisioningPDU.swift; sourceTree = "<group>"; };
 		8F1770C169E5D4AC2CA007AF /* CuesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CuesView.swift; sourceTree = "<group>"; };
@@ -71,7 +71,6 @@
 		992513CD5F1FAA9B84055887 /* MeshCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshCrypto.swift; sourceTree = "<group>"; };
 		9AAE3FBEA794C6D7DA1D597D /* LightControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightControlView.swift; sourceTree = "<group>"; };
 		AAB72D4003099478B9EF8306 /* TimelineEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineEngine.swift; sourceTree = "<group>"; };
-		AAF25791D7C373263047247B /* PaparazziEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaparazziEngine.swift; sourceTree = "<group>"; };
 		AD8F4D6567CD5F653F4FF720 /* SidusMeshConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidusMeshConfig.swift; sourceTree = "<group>"; };
 		AECCCC4F96EEC33B2FE31179 /* TempoMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TempoMap.swift; sourceTree = "<group>"; };
 		B18F642EB0F7B00AEA977D0B /* SavedLight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedLight.swift; sourceTree = "<group>"; };
@@ -87,6 +86,7 @@
 		E6813B950AB3CC3D52353986 /* LightSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightSessionView.swift; sourceTree = "<group>"; };
 		F0B2D3A837E5C066289669C3 /* MeshConfigManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshConfigManager.swift; sourceTree = "<group>"; };
 		F39E9E4EEF2910DFED5E32F0 /* CueEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CueEditorView.swift; sourceTree = "<group>"; };
+		FCDC89077096E1BE50ABA901 /* PaparazziEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaparazziEngine.swift; sourceTree = "<group>"; };
 		FFA8FCD0FFAFEAF25F0BDAFF /* GroupSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupSessionView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -108,6 +108,16 @@
 				DCBC503C53982BEB3199AF30 /* FilmLightRemote.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		55BDE6D7A15758D642C1F023 /* Effects */ = {
+			isa = PBXGroup;
+			children = (
+				1AD4375135C907A79C8C557D /* FaultyBulbEngine.swift */,
+				FCDC89077096E1BE50ABA901 /* PaparazziEngine.swift */,
+				72AA55C24514038EC2E49452 /* SoftwareEffectEngine.swift */,
+			);
+			path = Effects;
 			sourceTree = "<group>";
 		};
 		A0AA491C738FD6E6910A8773 /* Views */ = {
@@ -150,18 +160,15 @@
 				1E877B3320FD9730E91EC522 /* BLEManager.swift */,
 				68A40A94EC401278951BCC9A /* BridgeManager.swift */,
 				CE8C8946FCB7099BDACEBA8D /* CueEngine.swift */,
-				1E71AF8BEC899019B6DF66DE /* FaultyBulbEngine.swift */,
 				1B5A689371BF2929D94096E9 /* KeyStorage.swift */,
 				F0B2D3A837E5C066289669C3 /* MeshConfigManager.swift */,
 				992513CD5F1FAA9B84055887 /* MeshCrypto.swift */,
 				547F9EEDFE799B05017A4518 /* MetronomeEngine.swift */,
-				AAF25791D7C373263047247B /* PaparazziEngine.swift */,
 				068ECC53454507BE5CBCC478 /* ProvisioningCrypto.swift */,
 				2B4559D072EE93D28896EEFC /* ProvisioningManager.swift */,
 				8977D6B232922EA4FE6BF488 /* ProvisioningPDU.swift */,
 				AD8F4D6567CD5F653F4FF720 /* SidusMeshConfig.swift */,
 				D25EB2E3FBCB7C6799D4542F /* SidusProtocols.swift */,
-				3F206C1ACAA3FA90ACF71727 /* SoftwareEffectEngine.swift */,
 				AECCCC4F96EEC33B2FE31179 /* TempoMap.swift */,
 				AAB72D4003099478B9EF8306 /* TimelineEngine.swift */,
 			);
@@ -196,6 +203,7 @@
 			children = (
 				E8D242696B7DDE837BDBD429 /* App */,
 				D6B6E752036D0EB0FAF46F56 /* BLE */,
+				55BDE6D7A15758D642C1F023 /* Effects */,
 				D1A660717A0D303C1804688C /* Models */,
 				F5E3FBD50A7DC564BCE49F79 /* Utils */,
 				A0AA491C738FD6E6910A8773 /* Views */,
@@ -280,7 +288,7 @@
 				59DD1DEC1955C3F3D7697E10 /* CueModels.swift in Sources */,
 				82B808439BAFBD9469C5393D /* CuesView.swift in Sources */,
 				237646B1C10C3EAD06E7E978 /* DebugLogView.swift in Sources */,
-				3F06A6859402F4A6007780DD /* FaultyBulbEngine.swift in Sources */,
+				0D3C89539494FC3008F73C55 /* FaultyBulbEngine.swift in Sources */,
 				AD22780D400186BC14DF823B /* FilmLightRemoteApp.swift in Sources */,
 				8EE3BFECD972D6D9B1D33CD8 /* GroupSessionView.swift in Sources */,
 				19108355F13B0CBA1C394927 /* GroupsView.swift in Sources */,
@@ -292,7 +300,7 @@
 				9CA18D2A805EBEDF789859F4 /* MeshCrypto.swift in Sources */,
 				81B584C20CC839CFFC218D1A /* MetronomeEngine.swift in Sources */,
 				97580AC1BB44F880636E0AAE /* MyLightsView.swift in Sources */,
-				920B29B571253388129F89E5 /* PaparazziEngine.swift in Sources */,
+				108A402406ACF711F995424C /* PaparazziEngine.swift in Sources */,
 				B2A4A24741DE03CAEB2663B2 /* ProvisioningCrypto.swift in Sources */,
 				362F8D7C35C5FB9EEA8E1D22 /* ProvisioningManager.swift in Sources */,
 				33280DFB3AFB4CCC47E14D14 /* ProvisioningPDU.swift in Sources */,
@@ -302,7 +310,7 @@
 				906941AABFDCB09F3F60EE54 /* SidusMeshConfig.swift in Sources */,
 				9F4E8D7B81AF8C471777253E /* SidusProtocols.swift in Sources */,
 				02FC3E4ABAA2162695E679F8 /* SlotBarView.swift in Sources */,
-				7823E819D8C8E62526BD055A /* SoftwareEffectEngine.swift in Sources */,
+				8B6EEC8203A2E7C5748F65FC /* SoftwareEffectEngine.swift in Sources */,
 				05FABD87145EA26E247C4182 /* TempoMap.swift in Sources */,
 				7AF9869829C1969F2F72EAB8 /* TimelineEngine.swift in Sources */,
 				3C2226A99945AA38C317B32C /* TimelineView.swift in Sources */,
