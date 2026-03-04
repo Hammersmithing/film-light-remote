@@ -194,6 +194,9 @@ struct TimelineView: View {
         .onAppear {
             engine.bleManager = bleManager
             updateDurationText()
+            if timeline.metronomeEnabled == true {
+                engine.prepareMetronome()
+            }
         }
         .onDisappear {
             engine.stop()
@@ -223,17 +226,15 @@ struct TimelineView: View {
                             timeRuler(width: canvasWidth)
                         }
 
-                        // Tempo lane (beat mode only)
-                        if isBeatMode {
-                            HStack(spacing: 0) {
-                                Text("Tempo")
-                                    .font(.system(size: 9, weight: .medium))
-                                    .frame(width: trackLabelWidth, height: tempoLaneHeight)
-                                    .background(Color(.systemGray6))
-                                tempoLane(width: canvasWidth)
-                            }
-                            Divider()
+                        // Tempo lane (always visible)
+                        HStack(spacing: 0) {
+                            Text("Tempo")
+                                .font(.system(size: 9, weight: .medium))
+                                .frame(width: trackLabelWidth, height: tempoLaneHeight)
+                                .background(Color(.systemGray6))
+                            tempoLane(width: canvasWidth)
                         }
+                        Divider()
 
                         // Audio lane
                         if timeline.audioFileName != nil {
@@ -263,9 +264,7 @@ struct TimelineView: View {
                             : trackLabelWidth + CGFloat(engine.currentTime) * ptsPerSecond)
 
                     // Playhead
-                    if engine.isPlaying || engine.currentTime > 0 {
-                        playheadView(canvasHeight: totalCanvasHeight)
-                    }
+                    playheadView(canvasHeight: totalCanvasHeight)
                 }
             }
             .onChange(of: engine.currentTime) { _ in
@@ -289,7 +288,7 @@ struct TimelineView: View {
 
     private var totalCanvasHeight: CGFloat {
         let audioLane: CGFloat = timeline.audioFileName != nil ? (trackHeight + 1) : 0
-        let tempo: CGFloat = isBeatMode ? (tempoLaneHeight + 1) : 0
+        let tempo: CGFloat = tempoLaneHeight + 1
         return rulerHeight + tempo + audioLane + CGFloat(timeline.tracks.count) * (trackHeight + 1)
     }
 
@@ -423,8 +422,14 @@ struct TimelineView: View {
                 .frame(width: width, height: tempoLaneHeight)
                 .contentShape(Rectangle())
                 .onTapGesture { location in
-                    let beat = Double(location.x) / Double(ptsPerSecond)
                     let map = TempoMap(events: events)
+                    let beat: Double
+                    if isBeatMode {
+                        beat = Double(location.x) / Double(ptsPerSecond)
+                    } else {
+                        let seconds = Double(location.x) / Double(ptsPerSecond)
+                        beat = map.beat(forSeconds: seconds)
+                    }
                     let snappedBeat = map.snapToBar(beat)
                     // Don't add at position 0 if one already exists there
                     if events.contains(where: { abs($0.beatPosition - snappedBeat) < 0.001 }) {
@@ -436,7 +441,10 @@ struct TimelineView: View {
                 }
 
             ForEach(events) { event in
-                let x = CGFloat(event.beatPosition) * ptsPerSecond
+                let map = TempoMap(events: events)
+                let x = isBeatMode
+                    ? CGFloat(event.beatPosition) * ptsPerSecond
+                    : CGFloat(map.seconds(forBeat: event.beatPosition)) * ptsPerSecond
                 Text("\(Int(event.bpm)) \(event.timeSignature.displayString)")
                     .font(.system(size: 8, weight: .semibold, design: .monospaced))
                     .foregroundColor(.white)
@@ -594,16 +602,12 @@ struct TimelineView: View {
         } else {
             position = trackLabelWidth + CGFloat(engine.currentTime) * ptsPerSecond
         }
-        return ZStack {
-            Rectangle()
-                .fill(Color.red)
-                .frame(width: 2, height: canvasHeight)
-            Rectangle()
-                .fill(Color.clear)
-                .frame(width: 20, height: canvasHeight)
-                .contentShape(Rectangle())
-        }
-        .offset(x: position)
+        return Rectangle()
+            .fill(Color.red)
+            .frame(width: 2, height: canvasHeight)
+            .padding(.horizontal, 9)
+            .contentShape(Rectangle())
+            .offset(x: position - 10)
         .gesture(
             DragGesture(minimumDistance: 1)
                 .onChanged { value in
@@ -652,17 +656,15 @@ struct TimelineView: View {
                     .font(.title2)
             }
 
-            // Metronome toggle (beat mode only)
-            if isBeatMode {
-                Button {
-                    timeline.metronomeEnabled = !(timeline.metronomeEnabled ?? false)
-                    engine.setMetronomeEnabled(timeline.metronomeEnabled == true)
-                    save()
-                } label: {
-                    Image(systemName: timeline.metronomeEnabled == true ? "metronome.fill" : "metronome")
-                        .font(.title3)
-                        .foregroundColor(timeline.metronomeEnabled == true ? .accentColor : .secondary)
-                }
+            // Metronome toggle (always available)
+            Button {
+                timeline.metronomeEnabled = !(timeline.metronomeEnabled ?? false)
+                engine.setMetronomeEnabled(timeline.metronomeEnabled == true)
+                save()
+            } label: {
+                Image(systemName: timeline.metronomeEnabled == true ? "metronome.fill" : "metronome")
+                    .font(.title3)
+                    .foregroundColor(timeline.metronomeEnabled == true ? .accentColor : .secondary)
             }
 
             Spacer()
@@ -896,9 +898,7 @@ struct TimelineView: View {
     private func seekPlayhead(to time: Double) {
         engine.seek(to: time)
         // Ensure currentBeat is updated even when engine's tempoMap is nil (e.g. before first play)
-        if isBeatMode {
-            engine.currentBeat = TempoMap(events: timeline.effectiveTempoEvents).beat(forSeconds: engine.currentTime)
-        }
+        engine.currentBeat = TempoMap(events: timeline.effectiveTempoEvents).beat(forSeconds: engine.currentTime)
     }
 
     private func save() {

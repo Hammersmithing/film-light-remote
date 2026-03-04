@@ -37,46 +37,71 @@ class TimelineEngine: ObservableObject {
         firedBlockIds.removeAll()
         endedBlockIds.removeAll()
 
-        // Build TempoMap for beat mode
+        // Always build TempoMap so metronome & tempo lane work in any mode
+        tempoMap = TempoMap(events: timeline.effectiveTempoEvents)
+        currentBeat = tempoMap!.beat(forSeconds: currentTime)
         if timeline.effectiveMode == .beats {
-            tempoMap = TempoMap(events: timeline.effectiveTempoEvents)
             effectiveDuration = tempoMap!.totalSeconds(forBeats: timeline.totalBeats ?? 32)
-            currentBeat = tempoMap!.beat(forSeconds: currentTime)
         } else {
-            tempoMap = nil
             effectiveDuration = timeline.totalDuration
         }
 
-        previousTime = currentTime
-        startOffset = currentTime
-        startWallTime = CACurrentMediaTime()
-        isPlaying = true
+        // Activate audio session (needed for metronome and/or audio playback)
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback)
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("Audio session activation failed: \(error)")
+        }
 
-        // Setup metronome if enabled in beat mode
-        if timeline.effectiveMode == .beats && timeline.metronomeEnabled == true {
+        // Setup metronome if enabled
+        if timeline.metronomeEnabled == true {
             metronome.setup()
         }
 
-        // Start audio if the timeline has one
+        // Start playhead immediately, but set startWallTime 150ms in the future.
+        // tick() clamps elapsed to 0 until the wall clock catches up, so
+        // the playhead sits still during preroll then starts moving smoothly.
+        previousTime = currentTime
+        startOffset = currentTime
+        startWallTime = CACurrentMediaTime() + 0.15
+        isPlaying = true
+
+        let link = CADisplayLink(target: self, selector: #selector(tick))
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+
+        // Prepare audio player (but don't start yet)
+        var pendingPlayer: AVAudioPlayer?
         if let fileId = timeline.audioFileId {
             let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             let audioURL = docs.appendingPathComponent(fileId)
             do {
-                try AVAudioSession.sharedInstance().setCategory(.playback)
-                try AVAudioSession.sharedInstance().setActive(true)
                 let player = try AVAudioPlayer(contentsOf: audioURL)
                 player.prepareToPlay()
-                player.currentTime = currentTime
-                player.play()
-                audioPlayer = player
+                pendingPlayer = player
             } catch {
                 print("Audio playback failed: \(error)")
             }
         }
 
-        let link = CADisplayLink(target: self, selector: #selector(tick))
-        link.add(to: .main, forMode: .common)
-        displayLink = link
+        // When preroll ends: fire initial click + start audio
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            guard let self = self, self.isPlaying else { return }
+
+            // Fire initial metronome click (tick() skips beat 0 due to > check)
+            if timeline.metronomeEnabled == true, let map = self.tempoMap {
+                let (_, beatInBar) = map.barBeat(forBeat: self.currentBeat)
+                self.metronome.playClick(isDownbeat: beatInBar < 0.001)
+            }
+
+            // Start audio synced to playhead
+            if let player = pendingPlayer {
+                player.currentTime = self.currentTime
+                player.play()
+                self.audioPlayer = player
+            }
+        }
     }
 
     func stop() {
@@ -89,6 +114,17 @@ class TimelineEngine: ObservableObject {
         activeEffectStates.removeAll()
         metronome.stop()
         tempoMap = nil
+    }
+
+    /// Pre-warm the metronome audio engine so the first click has no latency.
+    func prepareMetronome() {
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback)
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("Audio session activation failed: \(error)")
+        }
+        metronome.setup()
     }
 
     func setMetronomeEnabled(_ enabled: Bool) {
@@ -104,9 +140,8 @@ class TimelineEngine: ObservableObject {
         currentTime = clamped
         previousTime = clamped
         audioPlayer?.currentTime = clamped
-        if let map = tempoMap {
-            currentBeat = map.beat(forSeconds: clamped)
-        }
+        let map = tempoMap ?? TempoMap(events: timeline?.effectiveTempoEvents ?? [])
+        currentBeat = map.beat(forSeconds: clamped)
         metronome.reset()
         if isPlaying {
             startOffset = clamped
@@ -121,7 +156,7 @@ class TimelineEngine: ObservableObject {
         guard let tl = timeline else { return }
 
         let prevTime = currentTime
-        let elapsed = CACurrentMediaTime() - startWallTime
+        let elapsed = max(0, CACurrentMediaTime() - startWallTime)
         currentTime = startOffset + elapsed
 
         let duration = effectiveDuration > 0 ? effectiveDuration : tl.totalDuration

@@ -46,6 +46,15 @@ class MetronomeEngine {
         }
     }
 
+    /// Play a single click immediately (used for the initial beat on play).
+    func playClick(isDownbeat: Bool) {
+        guard isSetUp, let player = playerNode else { return }
+        let buf = isDownbeat ? downbeatBuffer : offbeatBuffer
+        if let buf = buf {
+            player.scheduleBuffer(buf, at: nil, options: [], completionHandler: nil)
+        }
+    }
+
     func reset() {
         playerNode?.stop()
         playerNode?.play()
