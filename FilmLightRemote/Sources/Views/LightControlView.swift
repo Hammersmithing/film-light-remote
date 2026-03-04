@@ -74,7 +74,7 @@ private class ThrottledSender {
     private var pendingWork: DispatchWorkItem?
     private let interval: TimeInterval
 
-    init(interval: TimeInterval = 0.5) {
+    init(interval: TimeInterval = 0.1) {
         self.interval = interval
     }
 
@@ -181,16 +181,22 @@ struct PowerIntensitySection: View {
                             effectWasPlaying = lightState.effectPlaying
                             if lightState.effectPlaying {
                                 lightState.effectPlaying = false
-                                bleManager.stopEffect()
+                                if lightState.selectedEffect == .faultyBulb {
+                                    bleManager.stopFaultyBulb()
+                                } else {
+                                    bleManager.stopEffect()
+                                }
                             }
                         } else {
                             if effectWasPlaying {
                                 lightState.effectPlaying = true
                                 if lightState.selectedEffect == .faultyBulb {
                                     bleManager.startFaultyBulb(lightState: lightState)
-                                } else if lightState.selectedEffect == .paparazzi {
+                                } else if lightState.selectedEffect == .paparazzi && lightState.paparazziColorMode == .hsi {
                                     bleManager.startPaparazzi(lightState: lightState)
-                                } else if lightState.selectedEffect != .none && lightState.selectedEffect != .copCar {
+                                } else if lightState.selectedEffect == .pulsing || lightState.selectedEffect == .strobe || lightState.selectedEffect == .party {
+                                    bleManager.startSoftwareEffect(lightState: lightState)
+                                } else if lightState.selectedEffect != .none && lightState.selectedEffect != .copCar && lightState.effectColorMode == .hsi {
                                     bleManager.startSoftwareEffect(lightState: lightState)
                                 } else if lightState.selectedEffect != .none {
                                     bleManager.setEffect(
@@ -551,14 +557,37 @@ struct EffectsControls: View {
         }
     }
 
-    /// Slider drag updates: send updated params to bridge or re-send hardware effect.
+    /// Slider drag updates: update engine params or send hardware command.
     private func sendCurrentEffect() {
         guard lightState.selectedEffect != .none else { return }
         guard lightState.effectPlaying else { return }
+        guard lightState.selectedEffect != .faultyBulb else { return }
         if previewMode { return }
 
-        throttle.send { [bleManager, lightState] in
-            bleManager.updateRunningEffect(lightState: lightState)
+        if bleManager.bridgeManager.isConnected {
+            let params = BridgeManager.effectParams(from: lightState, effect: lightState.selectedEffect)
+            bleManager.bridgeManager.updateEffect(unicast: bleManager.targetUnicastAddress, params: params)
+            return
+        }
+
+        if needsSoftwareEngine {
+            if lightState.selectedEffect == .paparazzi {
+                bleManager.paparazziEngine?.updateParams(from: lightState)
+            } else {
+                bleManager.softwareEffectEngine?.updateParams(from: lightState)
+            }
+        } else {
+            throttle.send { [bleManager, lightState] in
+                bleManager.setEffect(
+                    effectType: lightState.selectedEffect.rawValue,
+                    intensityPercent: lightState.intensity,
+                    frq: Int(lightState.effectFrequency),
+                    cctKelvin: Int(lightState.cctKelvin),
+                    copCarColor: lightState.copCarColor,
+                    effectMode: 0,
+                    hue: Int(lightState.hue),
+                    saturation: Int(lightState.saturation))
+            }
         }
     }
 }
@@ -1037,18 +1066,36 @@ private struct FaultyBulbDetail: View {
         }
     }
 
-    /// Push current lightState params to the effect engine (bridge) or re-send hardware effect (direct BLE).
+    /// Push current lightState params to the running engine
     private func syncEngineParams() {
         if previewMode { return }
-        guard lightState.effectPlaying else { return }
-        bleManager.updateRunningEffect(lightState: lightState)
+        bleManager.faultyBulbEngine?.updateParams(from: lightState)
     }
 
-    /// Immediately send the current color and push updated params.
+    /// Immediately send the current color at the current intensity so slider changes are instant.
+    /// Also pushes updated params to the running engine.
     private func sendColorNow() {
         if previewMode { return }
         guard lightState.effectPlaying else { return }
-        bleManager.updateRunningEffect(lightState: lightState)
+        bleManager.faultyBulbEngine?.updateParams(from: lightState)
+        throttle.send { [bleManager, lightState] in
+            let intensity = lightState.intensity
+            if lightState.faultyBulbColorMode == .hsi {
+                bleManager.setHSIWithSleep(
+                    intensity: intensity,
+                    hue: Int(lightState.hue),
+                    saturation: Int(lightState.saturation),
+                    cctKelvin: Int(lightState.hsiCCT),
+                    sleepMode: 1
+                )
+            } else {
+                bleManager.setCCTWithSleep(
+                    intensity: intensity,
+                    cctKelvin: Int(lightState.cctKelvin),
+                    sleepMode: 1
+                )
+            }
+        }
     }
 }
 
@@ -1061,29 +1108,10 @@ private struct ColorModeEffectDetail: View {
     var onModeChanged: () -> Void = {}
     @Binding var colorMode: LightMode
     var showFrequency: Bool = true
-    var showIntensity: Bool = true
     private let throttle = ThrottledSender()
 
     var body: some View {
         VStack(spacing: 12) {
-            // Intensity slider
-            if showIntensity {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("Intensity")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text("\(Int(lightState.intensity))%")
-                            .font(.caption)
-                            .monospacedDigit()
-                    }
-
-                    Slider(value: $lightState.intensity, in: 0...100, step: 1)
-                        .onChange(of: lightState.intensity) { _ in throttle.send { onChanged() } }
-                }
-            }
-
             // Color mode picker: CCT / HSI
             Picker("Mode", selection: $colorMode) {
                 Text("CCT").tag(LightMode.cct)
@@ -1203,9 +1231,7 @@ private struct StrobeDetail: View {
 
                 Slider(value: $lightState.strobeHz, in: 1...12, step: 1)
                     .onChange(of: lightState.strobeHz) { _ in
-                        if !previewMode && lightState.effectPlaying {
-                            bleManager.updateRunningEffect(lightState: lightState)
-                        }
+                        if !previewMode { bleManager.softwareEffectEngine?.updateParams(from: lightState) }
                     }
             }
         }
@@ -1453,7 +1479,7 @@ private struct PulsingDetail: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            ColorModeEffectDetail(lightState: lightState, cctRange: cctRange, onChanged: onChanged, onModeChanged: onModeChanged, colorMode: $lightState.effectColorMode, showIntensity: false)
+            ColorModeEffectDetail(lightState: lightState, cctRange: cctRange, onChanged: onChanged, onModeChanged: onModeChanged, colorMode: $lightState.effectColorMode)
 
             // Intensity range slider
             VStack(alignment: .leading, spacing: 4) {
@@ -1504,8 +1530,7 @@ private struct PulsingDetail: View {
 
     private func syncParams() {
         if previewMode { return }
-        guard lightState.effectPlaying else { return }
-        bleManager.updateRunningEffect(lightState: lightState)
+        bleManager.softwareEffectEngine?.updateParams(from: lightState)
     }
 }
 
@@ -1524,22 +1549,6 @@ private struct CopCarDetail: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            // Intensity slider
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Intensity")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Spacer()
-                    Text("\(Int(lightState.intensity))%")
-                        .font(.caption)
-                        .monospacedDigit()
-                }
-
-                Slider(value: $lightState.intensity, in: 0...100, step: 1)
-                    .onChange(of: lightState.intensity) { _ in throttle.send { onChanged() } }
-            }
-
             VStack(alignment: .leading, spacing: 6) {
                 Text("Color")
                     .font(.caption)

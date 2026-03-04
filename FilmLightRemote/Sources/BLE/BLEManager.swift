@@ -69,6 +69,9 @@ class BLEManager: NSObject, ObservableObject {
     /// Bridge manager for WiFi-based ESP32 bridge. When connected, commands route through bridge.
     let bridgeManager = BridgeManager.shared
 
+    /// Whether the ESP32 WiFi bridge is connected
+    var useBridge: Bool { bridgeManager.isConnected }
+
     // Published state
     @Published var connectionState: BLEConnectionState = .disconnected
     @Published var discoveredLights: [DiscoveredLight] = []
@@ -129,7 +132,8 @@ class BLEManager: NSObject, ObservableObject {
     // Scanning
     private var scanTimer: Timer?
 
-    // (state polling removed — bridge handles state)
+    // Periodic state polling
+    private var statePollingTimer: Timer?
 
     override init() {
         super.init()
@@ -229,6 +233,9 @@ class BLEManager: NSObject, ObservableObject {
         // If connecting to a different peripheral in single-light mode, clean up the old one
         // (keepExisting = true preserves connections for multi-light cues)
         if !keepExisting, connectedPeripheral?.identifier != identifier {
+            stopFaultyBulb()
+            stopPaparazzi()
+            stopSoftwareEffect()
             // Explicitly disconnect the old peripheral and remove from registry
             if let old = connectedPeripheral {
                 peripheralConnections.removeValue(forKey: old.identifier)
@@ -292,7 +299,59 @@ class BLEManager: NSObject, ObservableObject {
         cleanup()
     }
 
-    // MARK: - Light Control Commands (dual-path: bridge when available, direct BLE otherwise)
+    // MARK: - Command Methods (Placeholders - implement after protocol analysis)
+
+    func sendCommand(_ data: Data) {
+        guard let characteristic = controlCharacteristic else {
+            log("Error: Control characteristic not available")
+            return
+        }
+
+        guard let peripheral = connectedPeripheral else {
+            log("Error: Not connected to peripheral")
+            return
+        }
+
+        log("Sending to \(characteristic.uuid): \(data.hexString)")
+
+        // Use writeWithoutResponse if supported, otherwise use withResponse
+        let writeType: CBCharacteristicWriteType
+        if characteristic.properties.contains(.writeWithoutResponse) {
+            writeType = .withoutResponse
+            log("  Using writeWithoutResponse")
+        } else {
+            writeType = .withResponse
+            log("  Using writeWithResponse")
+        }
+
+        peripheral.writeValue(data, for: characteristic, type: writeType)
+    }
+
+    /// Try sending to all writable characteristics (for debugging)
+    func sendToAllWritable(_ data: Data) {
+        guard let peripheral = connectedPeripheral,
+              let services = peripheral.services else {
+            log("Error: No services available")
+            return
+        }
+
+        log("Sending to ALL writable characteristics: \(data.hexString)")
+
+        for service in services {
+            guard let characteristics = service.characteristics else { continue }
+            for char in characteristics {
+                if char.properties.contains(.writeWithoutResponse) {
+                    peripheral.writeValue(data, for: char, type: .withoutResponse)
+                    log("  Sent to \(char.uuid) (writeWithoutResponse)")
+                } else if char.properties.contains(.write) {
+                    peripheral.writeValue(data, for: char, type: .withResponse)
+                    log("  Sent to \(char.uuid) (write)")
+                }
+            }
+        }
+    }
+
+    // MARK: - Light Control Commands (using Sidus Protocol)
 
     /// Current light state (stored for combined commands like power on/off)
     private(set) var currentIntensity: Int = 50
@@ -300,9 +359,6 @@ class BLEManager: NSObject, ObservableObject {
     private(set) var currentHue: Int = 0
     private(set) var currentSaturation: Int = 100
     private(set) var currentHSICCT: Int = 5600
-
-    /// Whether commands should go through the bridge (true) or direct BLE (false).
-    var useBridge: Bool { bridgeManager.isConnected }
 
     /// Sync BLEManager state from a loaded LightState (call when opening a light session)
     func syncState(from lightState: LightState) {
@@ -313,55 +369,101 @@ class BLEManager: NSObject, ObservableObject {
         currentSaturation = Int(lightState.saturation)
     }
 
-    // MARK: - Direct BLE Send Helper
-
-    /// Send a Sidus protocol payload directly via BLE mesh proxy (no bridge).
-    private func sendViaBLE(_ protocol: SidusProtocol, dst: UInt16) {
-        guard let peripheral = connectedPeripheral, let char = meshProxyIn else {
-            log("sendViaBLE: no peripheral/proxy char — cannot send")
-            return
-        }
-        let payload = `protocol`.getSendData()
-        var accessMessage: [UInt8] = [0x26]
-        accessMessage.append(contentsOf: payload)
-        if let pdu = MeshCrypto.createStandardMeshPDU(accessMessage: accessMessage, dst: dst) {
-            peripheral.writeValue(pdu, for: char, type: .withoutResponse)
-        }
-    }
-
     func setIntensity(_ percent: Double) {
         currentIntensity = Int(percent)
         currentMode = "cct"
-        if useBridge {
-            bridgeManager.setCCT(unicast: targetUnicastAddress, intensity: percent, cctKelvin: currentCCT, sleepMode: 1)
+        guard let peripheral = connectedPeripheral else { return }
+
+        let protocolIntensity = Int(round(percent * 10))
+        log("setIntensity(\(percent)%) protocolValue=\(protocolIntensity) cct=\(currentCCT)K target=0x\(String(format: "%04X", targetUnicastAddress))")
+
+        // Sidus opcode 0x26 + CCTProtocol — controls intensity via CCT mode
+        let cctCmd = CCTProtocol(intensityPercent: percent, cctKelvin: currentCCT)
+        let payload = cctCmd.getSendData()
+        log("  payload hex: \(payload.map { String(format: "%02X", $0) }.joined(separator: " "))")
+        var accessMessage: [UInt8] = [0x26]
+        accessMessage.append(contentsOf: payload)
+
+        if let char = meshProxyIn {
+            if let meshPDU = MeshCrypto.createStandardMeshPDU(
+                accessMessage: accessMessage,
+                dst: targetUnicastAddress
+            ) {
+                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
+                log("  Sent CCT intensity(\(percent)%) protocolValue=\(protocolIntensity) to 0x\(String(format: "%04X", targetUnicastAddress))")
+            }
+        }
+    }
+
+    /// Write a mesh PDU through a specific peripheral connection, or fall back to connectedPeripheral.
+    func writeMesh(accessMessage: [UInt8], dst: UInt16, viaPeripheral peripheralId: UUID? = nil) {
+        let conn: PeripheralConnection?
+        if let id = peripheralId, let registered = peripheralConnections[id] {
+            conn = registered
+        } else if let cp = connectedPeripheral, let mp = meshProxyIn {
+            conn = PeripheralConnection(peripheral: cp, meshProxyIn: mp)
         } else {
-            let proto = CCTProtocol(intensityPercent: percent, cctKelvin: currentCCT)
-            sendViaBLE(proto, dst: targetUnicastAddress)
+            conn = nil
+        }
+        guard let c = conn else { return }
+        if let meshPDU = MeshCrypto.createStandardMeshPDU(accessMessage: accessMessage, dst: dst) {
+            c.peripheral.writeValue(meshPDU, for: c.meshProxyIn, type: .withoutResponse)
         }
     }
 
     /// Set CCT with explicit values and sleepMode control for instant on/off transitions.
-    func setCCTWithSleep(intensity percent: Double, cctKelvin: Int, sleepMode: Int, targetAddress: UInt16? = nil) {
+    /// sleepMode=0 puts the light to sleep (instant off), sleepMode=1 wakes it (on).
+    /// Pass targetAddress to override the default targetUnicastAddress (used by background engines).
+    func setCCTWithSleep(intensity percent: Double, cctKelvin: Int, sleepMode: Int, targetAddress: UInt16? = nil, viaPeripheral: UUID? = nil) {
         let dst = targetAddress ?? targetUnicastAddress
-        if useBridge {
+
+        if bridgeManager.isConnected {
             bridgeManager.setCCT(unicast: dst, intensity: percent, cctKelvin: cctKelvin, sleepMode: sleepMode)
-        } else {
-            var proto = CCTProtocol(intensityPercent: percent, cctKelvin: cctKelvin)
-            proto.sleepMode = sleepMode
-            sendViaBLE(proto, dst: dst)
+            return
         }
+
+        let protocolIntensity = Int(round(percent * 10))
+        let cmd = CCTProtocol(
+            intensity: protocolIntensity,
+            cct: cctKelvin / 10,
+            gm: 100,
+            gmFlag: 0,
+            sleepMode: sleepMode,
+            autoPatchFlag: 0
+        )
+        let payload = cmd.getSendData()
+        log("setCCTWithSleep(i:\(percent)% pv:\(protocolIntensity) cct:\(cctKelvin)K sleep:\(sleepMode)) payload: \(payload.map { String(format: "%02X", $0) }.joined(separator: " "))")
+        var accessMessage: [UInt8] = [0x26]
+        accessMessage.append(contentsOf: payload)
+
+        writeMesh(accessMessage: accessMessage, dst: dst, viaPeripheral: viaPeripheral)
     }
 
     /// Set HSI with explicit values and sleepMode control for instant on/off transitions.
-    func setHSIWithSleep(intensity percent: Double, hue: Int, saturation: Int, cctKelvin: Int = 5600, sleepMode: Int, targetAddress: UInt16? = nil) {
+    /// Pass targetAddress to override the default targetUnicastAddress (used by background engines).
+    func setHSIWithSleep(intensity percent: Double, hue: Int, saturation: Int, cctKelvin: Int = 5600, sleepMode: Int, targetAddress: UInt16? = nil, viaPeripheral: UUID? = nil) {
         let dst = targetAddress ?? targetUnicastAddress
-        if useBridge {
+
+        if bridgeManager.isConnected {
             bridgeManager.setHSI(unicast: dst, intensity: percent, hue: hue, saturation: saturation, cctKelvin: cctKelvin, sleepMode: sleepMode)
-        } else {
-            var proto = HSIProtocol(intensityPercent: percent, hue: hue, saturationPercent: Double(saturation), cctKelvin: cctKelvin)
-            proto.sleepMode = sleepMode
-            sendViaBLE(proto, dst: dst)
+            return
         }
+
+        let cmd = HSIProtocol(
+            intensity: Int(round(percent * 10)),
+            hue: hue,
+            sat: saturation,
+            cct: cctKelvin / 50,
+            gm: 100,
+            gmFlag: 0,
+            sleepMode: sleepMode,
+            autoPatchFlag: 0
+        )
+        let payload = cmd.getSendData()
+        var accessMessage: [UInt8] = [0x26]
+        accessMessage.append(contentsOf: payload)
+
+        writeMesh(accessMessage: accessMessage, dst: dst, viaPeripheral: viaPeripheral)
     }
 
     /// Current CCT value for combined commands
@@ -370,11 +472,24 @@ class BLEManager: NSObject, ObservableObject {
     func setCCT(_ kelvin: Int) {
         currentCCT = kelvin
         currentMode = "cct"
-        if useBridge {
-            bridgeManager.setCCT(unicast: targetUnicastAddress, intensity: Double(currentIntensity), cctKelvin: kelvin, sleepMode: 1)
-        } else {
-            let proto = CCTProtocol(intensityPercent: Double(currentIntensity), cctKelvin: kelvin)
-            sendViaBLE(proto, dst: targetUnicastAddress)
+        guard let peripheral = connectedPeripheral else { return }
+
+        log("setCCT(\(kelvin)K) target=0x\(String(format: "%04X", targetUnicastAddress))")
+
+        // Sidus opcode 0x26 + CCTProtocol — sets both intensity and CCT
+        let cctCmd = CCTProtocol(intensityPercent: Double(currentIntensity), cctKelvin: kelvin)
+        let payload = cctCmd.getSendData()
+        var accessMessage: [UInt8] = [0x26]
+        accessMessage.append(contentsOf: payload)
+
+        if let char = meshProxyIn {
+            if let meshPDU = MeshCrypto.createStandardMeshPDU(
+                accessMessage: accessMessage,
+                dst: targetUnicastAddress
+            ) {
+                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
+                log("  Sent CCT(\(kelvin)K, \(currentIntensity)%) to 0x\(String(format: "%04X", targetUnicastAddress))")
+            }
         }
     }
 
@@ -390,139 +505,284 @@ class BLEManager: NSObject, ObservableObject {
         currentSaturation = saturation
         currentIntensity = intensity
         currentHSICCT = cctKelvin
-        if useBridge {
-            bridgeManager.setHSI(unicast: targetUnicastAddress, intensity: Double(intensity), hue: hue, saturation: saturation, cctKelvin: cctKelvin, sleepMode: 1)
-        } else {
-            let proto = HSIProtocol(intensityPercent: Double(intensity), hue: hue, saturationPercent: Double(saturation), cctKelvin: cctKelvin)
-            sendViaBLE(proto, dst: targetUnicastAddress)
+        guard let peripheral = connectedPeripheral else { return }
+
+        log("setHSI(h:\(hue), s:\(saturation), i:\(intensity), cct:\(cctKelvin)K) target=0x\(String(format: "%04X", targetUnicastAddress))")
+
+        // Sidus opcode 0x26 + HSIProtocol — sets hue, saturation, intensity, white balance
+        let cmd = HSIProtocol(intensityPercent: Double(intensity), hue: hue, saturationPercent: Double(saturation), cctKelvin: cctKelvin)
+        let payload = cmd.getSendData()
+        var accessMessage: [UInt8] = [0x26]
+        accessMessage.append(contentsOf: payload)
+
+        if let char = meshProxyIn {
+            if let meshPDU = MeshCrypto.createStandardMeshPDU(
+                accessMessage: accessMessage,
+                dst: targetUnicastAddress
+            ) {
+                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
+                log("  Sent HSI(h:\(hue), s:\(saturation), i:\(intensity)) to 0x\(String(format: "%04X", targetUnicastAddress))")
+            }
         }
     }
 
     func setPowerOn(_ on: Bool) {
-        let sleepMode = on ? 1 : 0
+        guard let peripheral = connectedPeripheral else { return }
+
+        log("setPower(\(on)) mode=\(currentMode) target=0x\(String(format: "%04X", targetUnicastAddress))")
+
         let intensity = on ? max(currentIntensity, 10) : 0
-        if useBridge {
-            if currentMode == "hsi" {
-                bridgeManager.setHSI(unicast: targetUnicastAddress, intensity: Double(intensity), hue: currentHue, saturation: currentSaturation, cctKelvin: currentHSICCT, sleepMode: sleepMode)
-            } else {
-                bridgeManager.setCCT(unicast: targetUnicastAddress, intensity: Double(intensity), cctKelvin: currentCCT, sleepMode: sleepMode)
-            }
+        let payload: Data
+
+        if currentMode == "hsi" {
+            let cmd = HSIProtocol(
+                intensity: intensity * 10,
+                hue: currentHue,
+                sat: currentSaturation,
+                cct: currentHSICCT / 50,
+                gm: 100,
+                gmFlag: 0,
+                sleepMode: on ? 1 : 0,
+                autoPatchFlag: 0
+            )
+            payload = cmd.getSendData()
         } else {
-            if currentMode == "hsi" {
-                var proto = HSIProtocol(intensityPercent: Double(intensity), hue: currentHue, saturationPercent: Double(currentSaturation), cctKelvin: currentHSICCT)
-                proto.sleepMode = sleepMode
-                sendViaBLE(proto, dst: targetUnicastAddress)
-            } else {
-                var proto = CCTProtocol(intensityPercent: Double(intensity), cctKelvin: currentCCT)
-                proto.sleepMode = sleepMode
-                sendViaBLE(proto, dst: targetUnicastAddress)
+            let cmd = CCTProtocol(
+                intensity: intensity * 10,
+                cct: currentCCT / 10,
+                gm: 100,
+                gmFlag: 0,
+                sleepMode: on ? 1 : 0,
+                autoPatchFlag: 0
+            )
+            payload = cmd.getSendData()
+        }
+
+        var accessMessage: [UInt8] = [0x26]
+        accessMessage.append(contentsOf: payload)
+
+        if let char = meshProxyIn {
+            if let meshPDU = MeshCrypto.createStandardMeshPDU(
+                accessMessage: accessMessage,
+                dst: targetUnicastAddress
+            ) {
+                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
+                log("  Sent \(currentMode) power \(on ? "ON" : "OFF") (intensity=\(intensity)%) to 0x\(String(format: "%04X", targetUnicastAddress))")
             }
         }
     }
 
-    func setEffect(effectType: Int, intensityPercent: Double, frq: Int, cctKelvin: Int = 5600, copCarColor: Int = 0, effectMode: Int = 0, hue: Int = 0, saturation: Int = 100, targetAddress: UInt16? = nil) {
+    func setEffect(effectType: Int, intensityPercent: Double, frq: Int, cctKelvin: Int = 5600, copCarColor: Int = 0, effectMode: Int = 0, hue: Int = 0, saturation: Int = 100, targetAddress: UInt16? = nil, viaPeripheral: UUID? = nil) {
         currentMode = "effects"
         let dst = targetAddress ?? targetUnicastAddress
-        if useBridge {
+
+        if bridgeManager.isConnected {
             bridgeManager.setEffect(unicast: dst, effectType: effectType, intensity: intensityPercent, frq: frq, cctKelvin: cctKelvin, copCarColor: copCarColor, effectMode: effectMode, hue: hue, saturation: saturation)
-        } else {
-            // Direct BLE: send the hardware effect protocol
-            var proto = SidusEffectProtocol(effectType: effectType, intensityPercent: intensityPercent, frq: frq, cctKelvin: cctKelvin)
-            proto.color = copCarColor
-            proto.effectMode = effectMode
-            proto.hue = hue
-            proto.sat = saturation
-            sendViaBLE(proto, dst: dst)
+            return
         }
+
+        log("setEffect(type:\(effectType), intensity:\(intensityPercent)%, frq:\(frq), mode:\(effectMode)) target=0x\(String(format: "%04X", dst))")
+
+        var cmd = SidusEffectProtocol(effectType: effectType, intensityPercent: intensityPercent, frq: frq, cctKelvin: cctKelvin)
+        cmd.color = copCarColor
+        cmd.effectMode = effectMode
+        cmd.hue = hue
+        cmd.sat = saturation
+        let payload = cmd.getSendData()
+        var accessMessage: [UInt8] = [0x26]
+        accessMessage.append(contentsOf: payload)
+
+        writeMesh(accessMessage: accessMessage, dst: dst, viaPeripheral: viaPeripheral)
+        log("  Sent effect type=\(effectType) to 0x\(String(format: "%04X", dst))")
     }
 
-    /// Send sleep command for instant on/off.
-    func sendSleep(_ on: Bool, targetAddress: UInt16? = nil) {
+    /// Send a dedicated SleepProtocol (commandType=12) for instant on/off — no color data to process.
+    func sendSleep(_ on: Bool, targetAddress: UInt16? = nil, viaPeripheral: UUID? = nil) {
         let dst = targetAddress ?? targetUnicastAddress
-        if useBridge {
+
+        if bridgeManager.isConnected {
             bridgeManager.sendSleep(unicast: dst, on: on)
-        } else {
-            let proto = SleepProtocol(on: on)
-            sendViaBLE(proto, dst: dst)
+            return
         }
+
+        let cmd = SleepProtocol(on: on)
+        let payload = cmd.getSendData()
+        var accessMessage: [UInt8] = [0x26]
+        accessMessage.append(contentsOf: payload)
+
+        writeMesh(accessMessage: accessMessage, dst: dst, viaPeripheral: viaPeripheral)
     }
 
     func stopEffect() {
-        if useBridge {
+        stopFaultyBulb()
+        stopPaparazzi()
+        stopSoftwareEffect()
+
+        if bridgeManager.isConnected {
             bridgeManager.stopEffect(unicast: targetUnicastAddress)
             log("stopEffect() via bridge for 0x\(String(format: "%04X", targetUnicastAddress))")
-        } else {
-            // Send effect-off (effectType 15) via direct BLE
-            let proto = SidusEffectProtocol(effectType: 15)
-            sendViaBLE(proto, dst: targetUnicastAddress)
-            log("stopEffect() via direct BLE for 0x\(String(format: "%04X", targetUnicastAddress))")
+            return
+        }
+
+        guard let peripheral = connectedPeripheral else { return }
+
+        log("stopEffect() target=0x\(String(format: "%04X", targetUnicastAddress))")
+
+        let cmd = SidusEffectProtocol(effectType: 15) // Effect Off
+        let payload = cmd.getSendData()
+        var accessMessage: [UInt8] = [0x26]
+        accessMessage.append(contentsOf: payload)
+
+        if let char = meshProxyIn {
+            if let meshPDU = MeshCrypto.createStandardMeshPDU(
+                accessMessage: accessMessage,
+                dst: targetUnicastAddress
+            ) {
+                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
+                log("  Sent effect OFF to 0x\(String(format: "%04X", targetUnicastAddress))")
+            }
         }
     }
 
-    // MARK: - Software Effect Commands (bridge uses software engines; direct BLE falls back to hardware effects)
-
-    /// Send a hardware effect command for the given lightState (used as fallback when no bridge).
-    private func sendHardwareEffect(lightState: LightState) {
-        let effect = lightState.selectedEffect
-        setEffect(effectType: effect.rawValue, intensityPercent: lightState.intensity,
-                  frq: Int(lightState.effectFrequency), cctKelvin: Int(lightState.cctKelvin),
-                  copCarColor: lightState.copCarColor, effectMode: 0,
-                  hue: Int(lightState.hue), saturation: Int(lightState.saturation))
+    /// Disconnect all peripherals except the primary `connectedPeripheral`.
+    /// Called when cue execution completes or is cancelled, to clean up extra connections.
+    func disconnectAllExtra() {
+        guard let primaryId = connectedPeripheral?.identifier else { return }
+        for (id, conn) in peripheralConnections where id != primaryId {
+            log("Disconnecting extra peripheral \(conn.peripheral.name ?? id.uuidString)")
+            centralManager.cancelPeripheralConnection(conn.peripheral)
+            // peripheralConnections entry removed in didDisconnect delegate
+        }
     }
 
-    /// Start a faulty bulb effect. Bridge uses software engine; direct BLE sends hardware effect 8.
-    func startFaultyBulb(lightState: LightState) {
-        if useBridge {
+    // MARK: - Software Effect Engines
+
+    private(set) var faultyBulbEngines: [FaultyBulbEngine] = []
+    private(set) var paparazziEngines: [PaparazziEngine] = []
+    private(set) var softwareEffectEngines: [SoftwareEffectEngine] = []
+
+    /// Convenience accessors for single-light views (returns first engine, if any)
+    var faultyBulbEngine: FaultyBulbEngine? { faultyBulbEngines.first }
+    var paparazziEngine: PaparazziEngine? { paparazziEngines.first }
+    var softwareEffectEngine: SoftwareEffectEngine? { softwareEffectEngines.first }
+
+    /// Whether a background engine is actively running
+    var hasActiveEngine: Bool { !faultyBulbEngines.isEmpty || !paparazziEngines.isEmpty || !softwareEffectEngines.isEmpty }
+
+    /// Start a faulty bulb engine. Multiple can run concurrently on different lights.
+    func startFaultyBulb(lightState: LightState, peripheralIdentifier: UUID? = nil) {
+        if bridgeManager.isConnected {
             let params = BridgeManager.effectParams(from: lightState, effect: .faultyBulb)
             bridgeManager.startSoftwareEffect(unicast: targetUnicastAddress, engine: "faultyBulb", params: params)
             log("Faulty bulb engine started on bridge for 0x\(String(format: "%04X", targetUnicastAddress))")
-        } else {
-            sendHardwareEffect(lightState: lightState)
-            log("Faulty bulb via hardware effect (no bridge) for 0x\(String(format: "%04X", targetUnicastAddress))")
+            return
         }
+        // Stop any existing engine on this same light
+        stopFaultyBulb(forAddress: targetUnicastAddress)
+        let engine = FaultyBulbEngine()
+        faultyBulbEngines.append(engine)
+        engine.start(bleManager: self, lightState: lightState, targetAddress: targetUnicastAddress, peripheralIdentifier: peripheralIdentifier)
+        log("Faulty bulb engine started for 0x\(String(format: "%04X", targetUnicastAddress))")
     }
 
-    /// Stop faulty bulb effect for a specific light, or current target.
+    /// Stop faulty bulb engine for a specific light, or all if no address given.
     func stopFaultyBulb(forAddress address: UInt16? = nil) {
-        if useBridge {
-            bridgeManager.stopEffect(unicast: address ?? targetUnicastAddress)
-        } else {
-            stopEffect()
+        if bridgeManager.isConnected {
+            if let address = address {
+                bridgeManager.stopEffect(unicast: address)
+            }
+            // Local engines won't be running in bridge mode, but clean up just in case
+        }
+        if let address = address {
+            faultyBulbEngines.removeAll { engine in
+                if engine.targetAddress == address {
+                    engine.stop()
+                    log("Faulty bulb engine stopped for 0x\(String(format: "%04X", address))")
+                    return true
+                }
+                return false
+            }
+        } else if !faultyBulbEngines.isEmpty {
+            faultyBulbEngines.forEach { $0.stop() }
+            faultyBulbEngines.removeAll()
+            log("All faulty bulb engines stopped")
         }
     }
 
-    /// Start a paparazzi effect. Bridge uses software engine; direct BLE sends hardware effect.
-    func startPaparazzi(lightState: LightState) {
-        if useBridge {
+    /// Start a paparazzi engine. Multiple can run concurrently on different lights.
+    func startPaparazzi(lightState: LightState, peripheralIdentifier: UUID? = nil) {
+        if bridgeManager.isConnected {
             let params = BridgeManager.effectParams(from: lightState, effect: .paparazzi)
             bridgeManager.startSoftwareEffect(unicast: targetUnicastAddress, engine: "paparazzi", params: params)
             log("Paparazzi engine started on bridge for 0x\(String(format: "%04X", targetUnicastAddress))")
-        } else {
-            sendHardwareEffect(lightState: lightState)
-            log("Paparazzi via hardware effect (no bridge) for 0x\(String(format: "%04X", targetUnicastAddress))")
+            return
+        }
+        stopPaparazzi(forAddress: targetUnicastAddress)
+        let engine = PaparazziEngine()
+        paparazziEngines.append(engine)
+        engine.start(bleManager: self, lightState: lightState, targetAddress: targetUnicastAddress, peripheralIdentifier: peripheralIdentifier)
+        log("Paparazzi engine started for 0x\(String(format: "%04X", targetUnicastAddress))")
+    }
+
+    /// Stop paparazzi engine for a specific light, or all if no address given.
+    func stopPaparazzi(forAddress address: UInt16? = nil) {
+        if bridgeManager.isConnected {
+            if let address = address {
+                bridgeManager.stopEffect(unicast: address)
+            }
+        }
+        if let address = address {
+            paparazziEngines.removeAll { engine in
+                if engine.targetAddress == address {
+                    engine.stop()
+                    log("Paparazzi engine stopped for 0x\(String(format: "%04X", address))")
+                    return true
+                }
+                return false
+            }
+        } else if !paparazziEngines.isEmpty {
+            paparazziEngines.forEach { $0.stop() }
+            paparazziEngines.removeAll()
+            log("All paparazzi engines stopped")
         }
     }
 
-    /// Start a software effect. Bridge uses software engine; direct BLE sends hardware effect.
-    func startSoftwareEffect(lightState: LightState) {
-        let effect = lightState.selectedEffect
-        if useBridge {
+    /// Start a software effect engine. Multiple can run concurrently on different lights.
+    func startSoftwareEffect(lightState: LightState, peripheralIdentifier: UUID? = nil) {
+        if bridgeManager.isConnected {
+            let effect = lightState.selectedEffect
             let params = BridgeManager.effectParams(from: lightState, effect: effect)
             bridgeManager.startSoftwareEffect(unicast: targetUnicastAddress, engine: BridgeManager.engineName(for: effect), params: params)
             log("Software effect engine started on bridge: \(effect) for 0x\(String(format: "%04X", targetUnicastAddress))")
-        } else {
-            sendHardwareEffect(lightState: lightState)
-            log("Software effect \(effect) sent as hardware effect (no bridge) for 0x\(String(format: "%04X", targetUnicastAddress))")
+            return
         }
+        stopSoftwareEffect(forAddress: targetUnicastAddress)
+        let engine = SoftwareEffectEngine()
+        softwareEffectEngines.append(engine)
+        engine.start(bleManager: self, lightState: lightState, targetAddress: targetUnicastAddress, peripheralIdentifier: peripheralIdentifier)
+        log("Software effect engine started: \(lightState.selectedEffect) for 0x\(String(format: "%04X", targetUnicastAddress))")
     }
 
-    /// Update a running effect's parameters. Bridge sends incremental update; direct BLE re-sends full hardware command.
-    func updateRunningEffect(lightState: LightState) {
-        if useBridge {
-            let params = BridgeManager.effectParams(from: lightState, effect: lightState.selectedEffect)
-            bridgeManager.updateEffect(unicast: targetUnicastAddress, params: params)
-        } else {
-            sendHardwareEffect(lightState: lightState)
+    /// Stop software effect engine for a specific light, or all if no address given.
+    func stopSoftwareEffect(forAddress address: UInt16? = nil) {
+        if bridgeManager.isConnected {
+            if let address = address {
+                bridgeManager.stopEffect(unicast: address)
+            }
+        }
+        if let address = address {
+            softwareEffectEngines.removeAll { engine in
+                if engine.targetAddress == address {
+                    engine.stop()
+                    log("Software effect engine stopped for 0x\(String(format: "%04X", address))")
+                    return true
+                }
+                return false
+            }
+        } else if !softwareEffectEngines.isEmpty {
+            softwareEffectEngines.forEach { $0.stop() }
+            softwareEffectEngines.removeAll()
+            log("All software effect engines stopped")
         }
     }
 
@@ -563,7 +823,57 @@ class BLEManager: NSObject, ObservableObject {
         return (Int(h), Int(s * 100), Int(i * 100))
     }
 
-    // (State polling removed — bridge handles state)
+    // MARK: - State Polling
+
+    /// Start polling the light for its current state every few seconds
+    func startStatePolling(interval: TimeInterval = 3.0) {
+        stopStatePolling()
+        log("Starting state polling (every \(interval)s)")
+        statePollingTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            self?.queryLightState()
+        }
+    }
+
+    /// Stop polling
+    func stopStatePolling() {
+        statePollingTimer?.invalidate()
+        statePollingTimer = nil
+    }
+
+    // MARK: - State Query
+
+    /// Query the light's current state by re-sending the current CCT/HSI state via mesh.
+    /// After model publication is configured, the light responds with its ACTUAL state
+    /// (which may differ from what we sent if physical controls were used).
+    func queryLightState() {
+        guard let peripheral = connectedPeripheral, let char = meshProxyIn else {
+            log("queryLightState: no mesh proxy connection")
+            return
+        }
+
+        // Re-send current state as a normal SET command — the light will respond
+        // with its actual state via the configured publication address
+        let payload: Data
+        if currentMode == "hsi" {
+            let cmd = HSIProtocol(intensityPercent: Double(currentIntensity), hue: currentHue, saturationPercent: Double(currentSaturation), cctKelvin: currentHSICCT)
+            payload = cmd.getSendData()
+        } else {
+            let cmd = CCTProtocol(intensityPercent: Double(currentIntensity), cctKelvin: currentCCT)
+            payload = cmd.getSendData()
+        }
+
+        var accessMessage: [UInt8] = [0x26]
+        accessMessage.append(contentsOf: payload)
+
+        log("queryLightState: re-sending current state (\(currentMode), \(currentIntensity)%) via mesh")
+
+        if let meshPDU = MeshCrypto.createStandardMeshPDU(
+            accessMessage: accessMessage,
+            dst: targetUnicastAddress
+        ) {
+            peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
+        }
+    }
 
     // MARK: - Proxy Filter Setup
 
@@ -615,6 +925,7 @@ class BLEManager: NSObject, ObservableObject {
     // MARK: - Private Methods
 
     private func cleanup() {
+        stopStatePolling()
         connectedPeripheral = nil
         connectedLight = nil
         controlCharacteristic = nil
@@ -828,6 +1139,29 @@ extension BLEManager: CBCentralManagerDelegate {
         // Remove from the multi-peripheral registry
         peripheralConnections.removeValue(forKey: peripheral.identifier)
 
+        // Stop engines that were targeting this peripheral
+        faultyBulbEngines.removeAll { engine in
+            if engine.peripheralIdentifier == peripheral.identifier {
+                engine.stop()
+                return true
+            }
+            return false
+        }
+        paparazziEngines.removeAll { engine in
+            if engine.peripheralIdentifier == peripheral.identifier {
+                engine.stop()
+                return true
+            }
+            return false
+        }
+        softwareEffectEngines.removeAll { engine in
+            if engine.peripheralIdentifier == peripheral.identifier {
+                engine.stop()
+                return true
+            }
+            return false
+        }
+
         // Only full cleanup if the disconnected peripheral was the primary one
         if peripheral.identifier == connectedPeripheral?.identifier {
             cleanup()
@@ -992,6 +1326,40 @@ extension BLEManager: CBPeripheralDelegate {
         }
     }
 
+    /// Send initialization sequence from captured Sidus Link traffic
+    private func sendInitSequence() {
+        guard let peripheral = connectedPeripheral else { return }
+
+        log("Sending init sequence (from Sidus capture)...")
+
+        // From packet capture - these are the exact init commands Sidus sends
+        let initCommands: [Data] = [
+            Data([0x01]),                    // ON
+            Data([0x00]),                    // OFF
+            Data([0xFF]),                    // Full brightness
+            Data([0x01, 0x00]),              // Status?
+            Data([0x01, 0xFF]),              // On + full?
+            Data([0xF0, 0x01, 0x00, 0x00]),  // Init command from capture
+            Data([0xF0, 0x00, 0x00, 0x00]),  // Another init command
+        ]
+
+        // Send to FF02
+        if let char = controlCharacteristic {
+            for cmd in initCommands {
+                peripheral.writeValue(cmd, for: char, type: .withoutResponse)
+                log("  FF02 init <- \(cmd.hexString)")
+            }
+        }
+
+        // Send to 7FCB
+        if let char = char7FCB {
+            for cmd in initCommands {
+                peripheral.writeValue(cmd, for: char, type: .withoutResponse)
+                log("  7FCB init <- \(cmd.hexString)")
+            }
+        }
+    }
+
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         if let error = error {
             log("Read error for \(characteristic.uuid): \(error.localizedDescription)")
@@ -1113,3 +1481,7 @@ extension Data {
     }
 }
 
+// Effect engines moved to separate files:
+// - FaultyBulbEngine.swift
+// - PaparazziEngine.swift
+// - SoftwareEffectEngine.swift
