@@ -74,7 +74,7 @@ private class ThrottledSender {
     private var pendingWork: DispatchWorkItem?
     private let interval: TimeInterval
 
-    init(interval: TimeInterval = 0.1) {
+    init(interval: TimeInterval = 0.2) {
         self.interval = interval
     }
 
