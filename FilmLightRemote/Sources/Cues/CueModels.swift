@@ -112,14 +112,16 @@ struct Move: Identifiable, Codable {
     var lightEntries: [MoveLightEntry]
     var fadeTime: Double       // A→B transition duration (0 = snap)
     var waitTime: Double       // pause after this move before next move starts
+    var lightsOffAfter: Bool   // turn lights off when move completes
 
     init(id: UUID = UUID(), name: String = "Move", lightEntries: [MoveLightEntry] = [],
-         fadeTime: Double = 0, waitTime: Double = 0) {
+         fadeTime: Double = 0, waitTime: Double = 0, lightsOffAfter: Bool = false) {
         self.id = id
         self.name = name
         self.lightEntries = lightEntries
         self.fadeTime = fadeTime
         self.waitTime = waitTime
+        self.lightsOffAfter = lightsOffAfter
     }
 }
 

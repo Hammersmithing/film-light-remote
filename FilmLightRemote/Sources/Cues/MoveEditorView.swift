@@ -92,6 +92,12 @@ struct MoveEditorView: View {
                 }
 
                 Section {
+                    Toggle("Lights Off After", isOn: $move.lightsOffAfter)
+                } footer: {
+                    Text(move.lightsOffAfter ? "Lights will turn off when this move finishes." : "Lights stay at their final position.")
+                }
+
+                Section {
                     if move.lightEntries.isEmpty {
                         Text("No lights in this move")
                             .foregroundColor(.secondary)

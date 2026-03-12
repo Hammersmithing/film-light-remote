@@ -108,6 +108,13 @@ class MoveEngine: ObservableObject {
     // MARK: - Move Complete
 
     private func moveDidComplete() {
+        let completedMove = allMoves[currentMoveIndex]
+        if completedMove.lightsOffAfter, let bm = bleManager {
+            for entry in completedMove.lightEntries {
+                bm.sendSleep(false, targetAddress: entry.unicastAddress)
+            }
+        }
+
         let nextIndex = currentMoveIndex + 1
         let hasNext = nextIndex < allMoves.count
 
