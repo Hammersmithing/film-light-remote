@@ -1,21 +1,35 @@
 import SwiftUI
 
-/// Edit one light's state within a cue — connects directly to the light's
-/// BLE peripheral (or via bridge) so the user sees their changes in real time.
+/// Edit one light's A and B positions within a cue.
+/// Connects directly to the light so the user sees changes in real time.
+/// Tab between Position A (start) and Position B (end) to set each look.
 struct CueLightEditorView: View {
     @EnvironmentObject var bleManager: BLEManager
     @ObservedObject private var bridgeManager = BridgeManager.shared
     @State private var entry: LightCueEntry
     @StateObject private var lightState = LightState()
+    @State private var selectedPosition: Position = .b
+    @State private var hasPositionA: Bool
     var onSave: (LightCueEntry) -> Void
 
-    /// Unicast address before we switched to this light (restored on dismiss).
+    enum Position: String, CaseIterable {
+        case a = "A"
+        case b = "B"
+    }
+
+    /// Stored snapshots so switching tabs preserves edits.
+    @State private var stateA: CueState
+    @State private var stateB: CueState
+
     @State private var previousUnicastAddress: UInt16 = 0
 
     private var usingBridge: Bool { bridgeManager.isConnected }
 
     init(entry: LightCueEntry, onSave: @escaping (LightCueEntry) -> Void) {
         _entry = State(initialValue: entry)
+        _stateA = State(initialValue: entry.startState ?? CueState())
+        _stateB = State(initialValue: entry.state)
+        _hasPositionA = State(initialValue: entry.startState != nil)
         self.onSave = onSave
     }
 
@@ -28,16 +42,12 @@ struct CueLightEditorView: View {
     }
 
     private var isLightReady: Bool {
-        if usingBridge {
-            return true
-        } else {
-            return bleManager.connectionState == .ready
-        }
+        usingBridge || bleManager.connectionState == .ready
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header with connection status
+            // Header
             HStack {
                 Image(systemName: "lightbulb.fill")
                     .foregroundColor(.yellow)
@@ -47,7 +57,7 @@ struct CueLightEditorView: View {
                 if !usingBridge && bleManager.connectionState != .ready {
                     ProgressView()
                         .scaleEffect(0.7)
-                    Text("Connecting via BLE...")
+                    Text("Connecting...")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
@@ -55,7 +65,46 @@ struct CueLightEditorView: View {
             .padding()
             .background(Color(.systemGray6))
 
-            // Full LightControlView — sends live commands
+            // A/B toggle
+            if hasPositionA {
+                Picker("Position", selection: $selectedPosition) {
+                    ForEach(Position.allCases, id: \.self) { pos in
+                        Text("Position \(pos.rawValue)").tag(pos)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.top, 8)
+                .onChange(of: selectedPosition) { _ in
+                    switchPosition()
+                }
+            }
+
+            // Enable/disable position A
+            Toggle(hasPositionA ? "Fade A \u{2192} B" : "Enable Fade (A \u{2192} B)", isOn: $hasPositionA)
+                .padding(.horizontal)
+                .padding(.top, 8)
+                .onChange(of: hasPositionA) { enabled in
+                    if enabled {
+                        // Copy current B state as starting point for A
+                        stateA = stateB
+                        selectedPosition = .a
+                        stateA.apply(to: lightState)
+                    } else {
+                        selectedPosition = .b
+                        stateB.apply(to: lightState)
+                    }
+                }
+
+            // Position label
+            if hasPositionA {
+                Text(selectedPosition == .a ? "Start Position" : "End Position")
+                    .font(.caption)
+                    .foregroundColor(selectedPosition == .a ? .blue : .green)
+                    .padding(.top, 4)
+            }
+
+            // Light controls
             LightControlView(
                 lightState: lightState,
                 cctRange: cctRange,
@@ -64,12 +113,14 @@ struct CueLightEditorView: View {
             .allowsHitTesting(isLightReady)
             .opacity(isLightReady ? 1.0 : 0.5)
         }
-        .navigationTitle("Edit Light State")
+        .navigationTitle(hasPositionA ? "Position \(selectedPosition.rawValue)" : "Edit Light")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") {
-                    entry.state = CueState.from(lightState)
+                    saveCurrentPosition()
+                    entry.state = stateB
+                    entry.startState = hasPositionA ? stateA : nil
                     onSave(entry)
                 }
             }
@@ -80,25 +131,25 @@ struct CueLightEditorView: View {
             }
         }
         .onAppear {
-            // Save current address so we can restore later
             previousUnicastAddress = bleManager.targetUnicastAddress
-
-            // Block status feedback — the proxy light's status would overwrite sliders
             bleManager.suppressStatusUpdates = true
-
-            // Point commands at this light
             bleManager.targetUnicastAddress = entry.unicastAddress
 
             if usingBridge {
                 bridgeManager.connectLight(unicast: entry.unicastAddress)
             } else {
-                // Look up peripheral identifier from saved lights
                 if let saved = KeyStorage.shared.savedLights.first(where: { $0.id == entry.lightId }) {
                     bleManager.connectToKnownPeripheral(identifier: saved.peripheralIdentifier)
                 }
             }
 
-            entry.state.apply(to: lightState)
+            // Load initial position into controls
+            if hasPositionA {
+                selectedPosition = .a
+                stateA.apply(to: lightState)
+            } else {
+                stateB.apply(to: lightState)
+            }
         }
         .onDisappear {
             bleManager.suppressStatusUpdates = false
@@ -106,6 +157,31 @@ struct CueLightEditorView: View {
             if !usingBridge {
                 bleManager.disconnect()
             }
+        }
+    }
+
+    /// Save the current lightState into the active position's snapshot.
+    private func saveCurrentPosition() {
+        let snapshot = CueState.from(lightState)
+        if selectedPosition == .a {
+            stateA = snapshot
+        } else {
+            stateB = snapshot
+        }
+    }
+
+    /// Switch between A and B — save current edits, load the other position.
+    private func switchPosition() {
+        // Save what we were editing
+        let snapshot = CueState.from(lightState)
+        if selectedPosition == .a {
+            // We just switched TO A, so save B
+            stateB = snapshot
+            stateA.apply(to: lightState)
+        } else {
+            // We just switched TO B, so save A
+            stateA = snapshot
+            stateB.apply(to: lightState)
         }
     }
 }

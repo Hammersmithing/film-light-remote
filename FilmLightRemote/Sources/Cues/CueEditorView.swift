@@ -8,17 +8,20 @@ struct CueEditorView: View {
     @State private var copiedState: CueState?
     @State private var delayText: String = ""
     @State private var durationText: String = ""
+    @State private var fadeInText: String = ""
     @State private var savedDelayText: String = ""
     @State private var savedDurationText: String = ""
+    @State private var savedFadeInText: String = ""
     @FocusState private var focusedField: TimingField?
     var onSave: (Cue) -> Void
 
-    enum TimingField { case delay, duration }
+    enum TimingField { case delay, duration, fadeIn }
 
     init(cue: Cue, onSave: @escaping (Cue) -> Void) {
         _cue = State(initialValue: cue)
         _delayText = State(initialValue: Self.formatSeconds(cue.followDelay))
         _durationText = State(initialValue: Self.formatSeconds(cue.fadeTime))
+        _fadeInText = State(initialValue: Self.formatSeconds(cue.fadeInTime))
         self.onSave = onSave
     }
 
@@ -88,10 +91,33 @@ struct CueEditorView: View {
                             .foregroundColor(.secondary)
                             .font(.subheadline)
                     }
+
+                    // Fade In
+                    HStack {
+                        Text("Fade In")
+                        Spacer()
+                        TextField("0.00", text: $fadeInText)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .focused($focusedField, equals: .fadeIn)
+                            .frame(width: 70)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color(.systemGray5))
+                            .cornerRadius(6)
+                            .onChange(of: fadeInText) { _ in
+                                cue.fadeInTime = Self.parseSeconds(fadeInText, ceiling: 30)
+                            }
+                        Text("sec")
+                            .foregroundColor(.secondary)
+                            .font(.subheadline)
+                    }
                 } header: {
                     Text("Timing")
                 } footer: {
-                    if cue.fadeTime == 0 {
+                    if cue.fadeInTime > 0 {
+                        Text("Fades in over \(Self.formatSeconds(cue.fadeInTime))s." + (cue.fadeTime > 0 ? " Holds for \(Self.formatSeconds(cue.fadeTime))s then ends." : " Holds until next GO."))
+                    } else if cue.fadeTime == 0 {
                         Text("Duration 0 = stays active until next GO.")
                     } else {
                         Text("Light holds for \(Self.formatSeconds(cue.fadeTime))s then the cue ends.")
@@ -195,6 +221,9 @@ struct CueEditorView: View {
             } else if newField == .duration {
                 savedDurationText = durationText
                 durationText = ""
+            } else if newField == .fadeIn {
+                savedFadeInText = fadeInText
+                fadeInText = ""
             }
         }
         .sheet(isPresented: $showingLightPicker) {
@@ -230,6 +259,9 @@ struct CueEditorView: View {
         } else if focusedField == .duration {
             cue.fadeTime = Self.parseSeconds(durationText, ceiling: 30)
             durationText = Self.formatSeconds(cue.fadeTime)
+        } else if focusedField == .fadeIn {
+            cue.fadeInTime = Self.parseSeconds(fadeInText, ceiling: 30)
+            fadeInText = Self.formatSeconds(cue.fadeInTime)
         }
         focusedField = nil
     }
@@ -239,6 +271,8 @@ struct CueEditorView: View {
             delayText = savedDelayText
         } else if focusedField == .duration {
             durationText = savedDurationText
+        } else if focusedField == .fadeIn {
+            fadeInText = savedFadeInText
         }
         focusedField = nil
     }
@@ -259,9 +293,25 @@ private struct LightEntryRow: View {
                 Text(entry.lightName)
                     .font(.body)
                     .fontWeight(.medium)
-                Text(entry.state.modeSummary)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+
+                if let startState = entry.startState {
+                    // A → B summary
+                    HStack(spacing: 4) {
+                        Text(startState.shortSummary)
+                            .font(.caption)
+                            .foregroundColor(.blue)
+                        Image(systemName: "arrow.right")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        Text(entry.state.shortSummary)
+                            .font(.caption)
+                            .foregroundColor(.green)
+                    }
+                } else {
+                    Text(entry.state.modeSummary)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
 
             Spacer()

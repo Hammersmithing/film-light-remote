@@ -15,13 +15,16 @@ class CueEngine: ObservableObject {
     weak var bleManager: BLEManager?
     private var delayWork: DispatchWorkItem?
     private var durationWork: DispatchWorkItem?
+    private var fadeTimer: Timer?
     private var allCues: [Cue] = []
+    private var holdFinal: Bool = true
 
     // MARK: - Fire Cue
 
-    func fireCue(_ cue: Cue, allCues: [Cue]) {
+    func fireCue(_ cue: Cue, allCues: [Cue], holdFinal: Bool = true) {
         guard let bm = bleManager else { return }
         self.allCues = allCues
+        self.holdFinal = holdFinal
 
         // Stop any in-progress work from the previous cue
         cancelPending()
@@ -40,12 +43,19 @@ class CueEngine: ObservableObject {
         }
     }
 
-    /// Step 2 & 3: Snap lights to their state immediately, then hold for duration.
+    /// Step 2 & 3: Execute the cue — fade if entries have A→B states, otherwise snap.
     private func executeCue(_ cue: Cue, bleManager: BLEManager) {
-        // Fire all lights simultaneously via bridge
-        fireSnap(cue, bleManager: bleManager)
+        let hasFade = cue.fadeInTime > 0 && cue.lightEntries.contains(where: { $0.startState != nil })
+        if hasFade {
+            startFadeIn(cue, bleManager: bleManager)
+        } else {
+            fireSnap(cue, bleManager: bleManager)
+            scheduleDuration(cue)
+        }
+    }
 
-        // Schedule the cue end after duration
+    /// Schedule the hold duration after a cue finishes its transition.
+    private func scheduleDuration(_ cue: Cue) {
         let duration = cue.fadeTime
         let work = DispatchWorkItem { [weak self] in
             self?.cueDidEnd()
@@ -60,24 +70,73 @@ class CueEngine: ObservableObject {
         }
     }
 
+    // MARK: - Fade In
+
+    /// Interpolate each light from its position A (startState) to position B (state).
+    /// Lights without a startState snap directly to their target.
+    private func startFadeIn(_ cue: Cue, bleManager: BLEManager) {
+        // Snap lights that have position A to their start state immediately
+        for entry in cue.lightEntries {
+            if let startState = entry.startState {
+                sendState(startState, to: entry.unicastAddress, bleManager: bleManager)
+            } else {
+                // No A state — snap to B
+                sendState(entry.state, to: entry.unicastAddress, bleManager: bleManager)
+            }
+        }
+
+        let fadeInTime = cue.fadeInTime
+        let startTime = Date()
+        let tickInterval: TimeInterval = 0.05  // 50ms = 20 updates/sec
+
+        fadeTimer?.invalidate()
+        fadeTimer = Timer.scheduledTimer(withTimeInterval: tickInterval, repeats: true) { [weak self] timer in
+            guard let self = self else { timer.invalidate(); return }
+
+            let elapsed = Date().timeIntervalSince(startTime)
+            let t = min(elapsed / fadeInTime, 1.0)
+
+            for entry in cue.lightEntries {
+                guard let startState = entry.startState else { continue }
+                let interpolated = CueState.interpolate(from: startState, to: entry.state, t: t)
+                self.sendState(interpolated, to: entry.unicastAddress, bleManager: bleManager)
+            }
+
+            if t >= 1.0 {
+                timer.invalidate()
+                self.fadeTimer = nil
+                if cue.fadeTime > 0 {
+                    // Hold at position B for the specified duration
+                    self.scheduleDuration(cue)
+                } else {
+                    // No hold duration — cue is complete after fade finishes
+                    self.cueDidEnd()
+                }
+            }
+        }
+    }
+
     /// Step 4: The current cue has finished its duration.
     private func cueDidEnd() {
-        // Stop all effects and dim lights to 0%
-        stopAllEffects()
-        dimCueLights(allCues[currentCueIndex])
-
         let nextIndex = currentCueIndex + 1
         let hasNext = nextIndex < allCues.count
+        let isLastCue = !hasNext
+
+        // Skip dim if this is the last cue and holdFinal is on
+        if isLastCue && holdFinal {
+            // Leave lights at their final position
+        } else {
+            stopAllEffects()
+            dimCueLights(allCues[currentCueIndex])
+        }
 
         if hasNext {
             let nextCue = allCues[nextIndex]
             currentCueIndex = nextIndex
 
-            // If the next cue has "Start Upon End of Previous Cue", fire it
             if nextCue.autoFollow {
-                fireCue(nextCue, allCues: allCues)
+                fireCue(nextCue, allCues: allCues, holdFinal: holdFinal)
             } else {
-                // Advance pointer for the GO button but stop running
                 isRunning = false
             }
         } else {
@@ -268,6 +327,8 @@ class CueEngine: ObservableObject {
         delayWork = nil
         durationWork?.cancel()
         durationWork = nil
+        fadeTimer?.invalidate()
+        fadeTimer = nil
         stopAllEffects()
     }
 

@@ -6,11 +6,21 @@ struct CueList: Identifiable, Codable {
     let id: UUID
     var name: String
     var cues: [Cue]
+    var holdFinal: Bool          // keep lights at final position when last cue ends
 
-    init(id: UUID = UUID(), name: String = "New Cue List", cues: [Cue] = []) {
+    init(id: UUID = UUID(), name: String = "New Cue List", cues: [Cue] = [], holdFinal: Bool = true) {
         self.id = id
         self.name = name
         self.cues = cues
+        self.holdFinal = holdFinal
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        cues = try c.decode([Cue].self, forKey: .cues)
+        holdFinal = try c.decodeIfPresent(Bool.self, forKey: .holdFinal) ?? true
     }
 }
 
@@ -23,15 +33,18 @@ struct Cue: Identifiable, Codable {
     var fadeTime: Double         // duration in seconds (0 = snap)
     var autoFollow: Bool         // start when previous cue ends
     var followDelay: Double      // delay before this cue fires (seconds)
+    var fadeInTime: Double       // transition time in seconds (0 = snap, >0 = interpolate)
 
     init(id: UUID = UUID(), name: String = "Cue", lightEntries: [LightCueEntry] = [],
-         fadeTime: Double = 0, autoFollow: Bool = false, followDelay: Double = 0) {
+         fadeTime: Double = 0, autoFollow: Bool = false, followDelay: Double = 0,
+         fadeInTime: Double = 0) {
         self.id = id
         self.name = name
         self.lightEntries = lightEntries
         self.fadeTime = fadeTime
         self.autoFollow = autoFollow
         self.followDelay = followDelay
+        self.fadeInTime = fadeInTime
     }
 
     // Migrate old data: followDelay used to default to 1.0, now defaults to 0
@@ -45,6 +58,7 @@ struct Cue: Identifiable, Codable {
         let rawDelay = try c.decode(Double.self, forKey: .followDelay)
         // Old default was 1.0 — reset to 0 unless autoFollow is on
         followDelay = (!autoFollow && rawDelay == 1.0) ? 0 : rawDelay
+        fadeInTime = try c.decodeIfPresent(Double.self, forKey: .fadeInTime) ?? 0
     }
 }
 
@@ -55,14 +69,17 @@ struct LightCueEntry: Identifiable, Codable {
     var lightId: UUID            // references SavedLight.id
     var lightName: String        // display name snapshot
     var unicastAddress: UInt16   // cached for cue execution
-    var state: CueState
+    var state: CueState          // position B (target / end state)
+    var startState: CueState?    // position A (start state, nil = snap to B)
 
-    init(id: UUID = UUID(), lightId: UUID, lightName: String, unicastAddress: UInt16, state: CueState = CueState()) {
+    init(id: UUID = UUID(), lightId: UUID, lightName: String, unicastAddress: UInt16,
+         state: CueState = CueState(), startState: CueState? = nil) {
         self.id = id
         self.lightId = lightId
         self.lightName = lightName
         self.unicastAddress = unicastAddress
         self.state = state
+        self.startState = startState
     }
 }
 
@@ -191,6 +208,24 @@ struct CueState: Codable {
         ls.partyTransition = partyTransition
         ls.partyHueBias = partyHueBias
         ls.effectPlaying = false
+    }
+
+    // MARK: - Interpolation
+
+    /// Linearly interpolate between two CueStates. t=0 returns `from`, t=1 returns `to`.
+    static func interpolate(from a: CueState, to b: CueState, t: Double) -> CueState {
+        let t = min(max(t, 0), 1)
+        func lerp(_ start: Double, _ end: Double) -> Double {
+            start + (end - start) * t
+        }
+        var result = b
+        result.intensity = lerp(a.intensity, b.intensity)
+        result.cctKelvin = lerp(a.cctKelvin, b.cctKelvin)
+        result.hue = lerp(a.hue, b.hue)
+        result.saturation = lerp(a.saturation, b.saturation)
+        result.hsiIntensity = lerp(a.hsiIntensity, b.hsiIntensity)
+        result.hsiCCT = lerp(a.hsiCCT, b.hsiCCT)
+        return result
     }
 
     // MARK: - Summary

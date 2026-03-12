@@ -51,6 +51,16 @@ struct CueListDetailView: View {
                     } label: {
                         Label("Reset to Top", systemImage: "arrow.counterclockwise")
                     }
+
+                    Divider()
+
+                    Button {
+                        cueList.holdFinal.toggle()
+                        saveCueList()
+                    } label: {
+                        Label(cueList.holdFinal ? "Hold Final: On" : "Hold Final: Off",
+                              systemImage: cueList.holdFinal ? "checkmark.circle.fill" : "circle")
+                    }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -208,7 +218,7 @@ struct CueListDetailView: View {
             engine.reset()
             return
         }
-        engine.fireCue(cueList.cues[index], allCues: cueList.cues)
+        engine.fireCue(cueList.cues[index], allCues: cueList.cues, holdFinal: cueList.holdFinal)
     }
 
     private func connectToProxyIfNeeded() {
@@ -258,6 +268,13 @@ private struct CueRow: View {
                     Label("\(cue.lightEntries.count)", systemImage: "lightbulb")
                         .font(.caption2)
                         .foregroundColor(.secondary)
+
+                    // Fade
+                    if cue.fadeInTime > 0 && cue.lightEntries.contains(where: { $0.startState != nil }) {
+                        Label(String(format: "%.1fs fade", cue.fadeInTime), systemImage: "waveform.path")
+                            .font(.caption2)
+                            .foregroundColor(.blue)
+                    }
 
                     // Duration
                     if cue.fadeTime > 0 {
