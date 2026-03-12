@@ -74,7 +74,7 @@ private class ThrottledSender {
     private var pendingWork: DispatchWorkItem?
     private let interval: TimeInterval
 
-    init(interval: TimeInterval = 0.2) {
+    init(interval: TimeInterval = 0.3) {
         self.interval = interval
     }
 
@@ -389,6 +389,12 @@ struct GMTintSlider: View {
                             bleManager.setCCT(Int(lightState.cctKelvin), gm: lightState.gmTint)
                         }
                     }
+            }
+            .onTapGesture(count: 2) {
+                lightState.gmTint = 100
+                if !previewMode {
+                    bleManager.setCCT(Int(lightState.cctKelvin), gm: 100)
+                }
             }
         }
     }
