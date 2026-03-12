@@ -34,6 +34,14 @@ class MeshConfigManager: ObservableObject {
     // Config Model Publication Set: opcode 0x03
     private static let opcodeModelPubSet: [UInt8] = [0x03]
 
+    // Config Relay Set: opcode 0x8023
+    private static let opcodeRelaySet: [UInt8] = [0x80, 0x23]
+
+    // Config Model Subscription Add: opcode 0x801B (for SIG models, 2-byte model ID)
+    private static let opcodeModelSubAddSIG: [UInt8] = [0x80, 0x1B]
+    // Config Vendor Model Subscription Add: opcode 0x801C (for vendor models, 4-byte model ID)
+    private static let opcodeModelSubAddVendor: [UInt8] = [0x80, 0x1C]
+
     // Standard SIG model IDs for Aputure lights
     private static let lightModels: [(id: UInt16, name: String)] = [
         (0x1000, "Generic OnOff Server"),
@@ -59,10 +67,36 @@ class MeshConfigManager: ObservableObject {
 
     private var modelBindIndex = 0
     private var responseTimer: Timer?
+    private var groupAddresses: [UInt16] = []
+    private var groupSubIndex = 0
+    private var groupModelSubIndex = 0  // tracks which model within current group address
 
     private var completion: ((Bool) -> Void)?
 
     // MARK: - Public
+
+    /// Send only group subscriptions (for already-configured saved lights)
+    func sendGroupSubscriptionsOnly(
+        peripheral: CBPeripheral,
+        proxyDataIn: CBCharacteristic,
+        deviceAddress: UInt16,
+        deviceKey: [UInt8],
+        groupAddresses: [UInt16],
+        completion: @escaping (Bool) -> Void
+    ) {
+        self.peripheral = peripheral
+        self.proxyDataIn = proxyDataIn
+        self.unicastAddress = deviceAddress
+        self.deviceKey = deviceKey
+        self.groupAddresses = groupAddresses
+        self.groupSubIndex = 0
+        self.groupModelSubIndex = 0
+        self.completion = completion
+
+        log("Enabling relay + sending \(groupAddresses.count) group subscription(s) x \(Self.subscriptionModels.count) models for device 0x\(String(format: "%04X", deviceAddress))")
+        // Enable relay first, then send subscriptions
+        sendRelaySet()
+    }
 
     /// Run the full post-provisioning config sequence
     func configure(
@@ -70,12 +104,16 @@ class MeshConfigManager: ObservableObject {
         proxyDataIn: CBCharacteristic,
         deviceAddress: UInt16,
         deviceKey: [UInt8],
+        groupAddresses: [UInt16] = [],
         completion: @escaping (Bool) -> Void
     ) {
         self.peripheral = peripheral
         self.proxyDataIn = proxyDataIn
         self.unicastAddress = deviceAddress
         self.deviceKey = deviceKey
+        self.groupAddresses = groupAddresses
+        self.groupSubIndex = 0
+        self.groupModelSubIndex = 0
         self.completion = completion
 
         let storage = KeyStorage.shared
@@ -85,6 +123,9 @@ class MeshConfigManager: ObservableObject {
 
         log("Starting configuration for device 0x\(String(format: "%04X", deviceAddress))")
         log("Device key: \(deviceKey.prefix(4).map { String(format: "%02X", $0) }.joined())...")
+        if !groupAddresses.isEmpty {
+            log("Will subscribe to \(groupAddresses.count) group(s): \(groupAddresses.map { String(format: "0x%04X", $0) }.joined(separator: ", "))")
+        }
 
         sendAppKeyAdd()
     }
@@ -269,11 +310,123 @@ class MeshConfigManager: ObservableObject {
 
         sendPDUs(pdus)
 
-        // Wait for response then complete
+        // Wait for response then enable relay
         responseTimer?.invalidate()
         responseTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { [weak self] _ in
-            self?.log("Publication Set sent — config complete")
-            self?.configComplete()
+            self?.log("Publication Set sent")
+            self?.sendRelaySet()
+        }
+    }
+
+    // MARK: - Relay Enable
+
+    /// Enable relay on the light so it forwards mesh PDUs on the advertising bearer.
+    /// Without this, group-addressed messages only reach the directly connected light.
+    private func sendRelaySet() {
+        log("Enabling relay...")
+
+        // Config Relay Set payload:
+        //   Opcode: 0x8023
+        //   Relay (1 byte): 0x01 = enabled
+        //   RelayRetransmitCount (3 bits) | RelayRetransmitIntervalSteps (5 bits)
+        var payload: [UInt8] = Self.opcodeRelaySet
+        payload.append(0x01)  // Relay = enabled
+        // Retransmit: Count=3 (retransmit 3 times), IntervalSteps=2 (30ms intervals)
+        let retransmit: UInt8 = (3 & 0x07) | ((2 & 0x1F) << 3)
+        payload.append(retransmit)
+
+        guard let pdus = MeshCrypto.createDeviceKeyPDU(
+            accessPayload: payload,
+            deviceKey: deviceKey,
+            dst: unicastAddress
+        ) else {
+            fail("Failed to create Relay Set PDU")
+            return
+        }
+
+        sendPDUs(pdus)
+
+        responseTimer?.invalidate()
+        responseTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in
+            self?.log("Relay Set sent")
+            self?.groupSubIndex = 0
+            self?.groupModelSubIndex = 0
+            self?.sendNextGroupSubscription()
+        }
+    }
+
+    // MARK: - Group Subscriptions
+
+    /// All models to subscribe: SIG models + vendor model (nil id = vendor)
+    private static let subscriptionModels: [(id: UInt32, isSIG: Bool, name: String)] = [
+        (0x1000, true, "Generic OnOff Server"),
+        (0x1300, true, "Light Lightness Server"),
+        (0x1303, true, "Light CTL Server"),
+        (0x1307, true, "Light HSL Server"),
+        (vendorModelID, false, "Sidus Vendor Model"),
+    ]
+
+    private func sendNextGroupSubscription() {
+        let allModels = Self.subscriptionModels
+
+        guard groupSubIndex < groupAddresses.count else {
+            log("All group subscriptions sent — config complete")
+            configComplete()
+            return
+        }
+
+        // If we've subscribed all models for this group address, move to next group
+        if groupModelSubIndex >= allModels.count {
+            groupSubIndex += 1
+            groupModelSubIndex = 0
+            sendNextGroupSubscription()
+            return
+        }
+
+        let groupAddr = groupAddresses[groupSubIndex]
+        let model = allModels[groupModelSubIndex]
+
+        log("Subscribing \(model.name) to group 0x\(String(format: "%04X", groupAddr))...")
+
+        var payload: [UInt8]
+
+        if model.isSIG {
+            // SIG model: opcode 0x801B, 2-byte model ID
+            payload = Self.opcodeModelSubAddSIG
+            payload.append(UInt8(unicastAddress & 0xFF))
+            payload.append(UInt8((unicastAddress >> 8) & 0xFF))
+            payload.append(UInt8(groupAddr & 0xFF))
+            payload.append(UInt8((groupAddr >> 8) & 0xFF))
+            payload.append(UInt8(model.id & 0xFF))
+            payload.append(UInt8((model.id >> 8) & 0xFF))
+        } else {
+            // Vendor model: opcode 0x801C, 4-byte model ID (company + model)
+            payload = Self.opcodeModelSubAddVendor
+            payload.append(UInt8(unicastAddress & 0xFF))
+            payload.append(UInt8((unicastAddress >> 8) & 0xFF))
+            payload.append(UInt8(groupAddr & 0xFF))
+            payload.append(UInt8((groupAddr >> 8) & 0xFF))
+            payload.append(UInt8(model.id & 0xFF))
+            payload.append(UInt8((model.id >> 8) & 0xFF))
+            payload.append(UInt8((model.id >> 16) & 0xFF))
+            payload.append(UInt8((model.id >> 24) & 0xFF))
+        }
+
+        guard let pdus = MeshCrypto.createDeviceKeyPDU(
+            accessPayload: payload,
+            deviceKey: deviceKey,
+            dst: unicastAddress
+        ) else {
+            fail("Failed to create Group Subscription Add PDU")
+            return
+        }
+
+        sendPDUs(pdus)
+        groupModelSubIndex += 1
+
+        responseTimer?.invalidate()
+        responseTimer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: false) { [weak self] _ in
+            self?.sendNextGroupSubscription()
         }
     }
 

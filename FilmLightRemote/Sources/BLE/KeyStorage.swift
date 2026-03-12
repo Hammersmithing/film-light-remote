@@ -34,6 +34,8 @@ class KeyStorage {
         }
         // Migrate any existing provisioned devices to saved lights
         migrateExistingDeviceKeys()
+        // Assign mesh group addresses to existing groups that don't have one
+        migrateGroupAddresses()
     }
 
     // MARK: - Network Key
@@ -239,6 +241,26 @@ class KeyStorage {
         }
     }
 
+    /// Assign mesh group addresses to groups that don't have one (migration for pre-existing groups)
+    private func migrateGroupAddresses() {
+        var groups = lightGroups
+        var changed = false
+        var used = Set(groups.compactMap { $0.meshGroupAddress })
+        for i in groups.indices {
+            if groups[i].meshGroupAddress == nil {
+                var addr: UInt16 = 0xC001
+                while used.contains(addr) { addr += 1 }
+                groups[i].meshGroupAddress = addr
+                used.insert(addr)
+                print("KeyStorage: Assigned mesh group address 0x\(String(format: "%04X", addr)) to group '\(groups[i].name)'")
+                changed = true
+            }
+        }
+        if changed {
+            lightGroups = groups
+        }
+    }
+
     // MARK: - Cue Lists
 
     var cueLists: [CueList] {
@@ -322,9 +344,29 @@ class KeyStorage {
     }
 
     func addLightGroup(_ group: LightGroup) {
+        var g = group
+        if g.meshGroupAddress == nil {
+            g.meshGroupAddress = nextMeshGroupAddress()
+        }
         var groups = lightGroups
-        groups.append(group)
+        groups.append(g)
         lightGroups = groups
+    }
+
+    /// Returns the next available mesh group address (0xC001, 0xC002, ...)
+    private func nextMeshGroupAddress() -> UInt16 {
+        let used = Set(lightGroups.compactMap { $0.meshGroupAddress })
+        var addr: UInt16 = 0xC001
+        while used.contains(addr) { addr += 1 }
+        return addr
+    }
+
+    /// Returns mesh group addresses for all groups containing a given light
+    func groupAddresses(forLightId id: UUID) -> [UInt16] {
+        return lightGroups.compactMap { group in
+            guard group.lightIds.contains(id), let addr = group.meshGroupAddress else { return nil }
+            return addr
+        }
     }
 
     func updateLightGroup(_ group: LightGroup) {

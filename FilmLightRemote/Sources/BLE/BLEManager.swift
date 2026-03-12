@@ -95,6 +95,14 @@ class BLEManager: NSObject, ObservableObject {
     /// Unicast address of the currently targeted light (set when opening a saved light)
     var targetUnicastAddress: UInt16 = 0x0002
 
+    /// When set, all commands route to this group address instead of targetUnicastAddress
+    var groupTargetAddress: UInt16? = nil
+
+    /// Effective destination address: group address if set, otherwise unicast
+    var effectiveTargetAddress: UInt16 {
+        groupTargetAddress ?? targetUnicastAddress
+    }
+
     /// Transaction ID counter for mesh model commands
     private var meshTID: UInt8 = 0
     private func nextTID() -> UInt8 {
@@ -123,6 +131,12 @@ class BLEManager: NSObject, ObservableObject {
 
     /// All active peripheral connections — keyed by peripheral identifier.
     private(set) var peripheralConnections: [UUID: PeripheralConnection] = [:]
+
+    // MARK: - BLE Write Rate Limiter
+    /// Minimum interval between BLE writes to avoid overwhelming the peripheral.
+    private let bleWriteInterval: TimeInterval = 0.1
+    private var lastBLEWriteTime: Date = .distantPast
+    private var pendingBLEWrite: DispatchWorkItem?
 
     /// Whether the connected device has provisioning service available
     var isProvisioningAvailable: Bool {
@@ -372,10 +386,11 @@ class BLEManager: NSObject, ObservableObject {
     func setIntensity(_ percent: Double) {
         currentIntensity = Int(percent)
         currentMode = "cct"
-        guard let peripheral = connectedPeripheral else { return }
+        guard connectedPeripheral != nil else { return }
 
         let protocolIntensity = Int(round(percent * 10))
-        log("setIntensity(\(percent)%) protocolValue=\(protocolIntensity) cct=\(currentCCT)K target=0x\(String(format: "%04X", targetUnicastAddress))")
+        let dst = effectiveTargetAddress
+        log("setIntensity(\(percent)%) protocolValue=\(protocolIntensity) cct=\(currentCCT)K target=0x\(String(format: "%04X", dst))")
 
         // Sidus opcode 0x26 + CCTProtocol — controls intensity via CCT mode
         let cctCmd = CCTProtocol(intensityPercent: percent, cctKelvin: currentCCT)
@@ -384,18 +399,12 @@ class BLEManager: NSObject, ObservableObject {
         var accessMessage: [UInt8] = [0x26]
         accessMessage.append(contentsOf: payload)
 
-        if let char = meshProxyIn {
-            if let meshPDU = MeshCrypto.createStandardMeshPDU(
-                accessMessage: accessMessage,
-                dst: targetUnicastAddress
-            ) {
-                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
-                log("  Sent CCT intensity(\(percent)%) protocolValue=\(protocolIntensity) to 0x\(String(format: "%04X", targetUnicastAddress))")
-            }
-        }
+        writeMesh(accessMessage: accessMessage, dst: dst)
+        log("  Sent CCT intensity(\(percent)%) protocolValue=\(protocolIntensity) to 0x\(String(format: "%04X", dst))")
     }
 
     /// Write a mesh PDU through a specific peripheral connection, or fall back to connectedPeripheral.
+    /// Rate-limited to avoid flooding the BLE connection and causing disconnects.
     func writeMesh(accessMessage: [UInt8], dst: UInt16, viaPeripheral peripheralId: UUID? = nil) {
         let conn: PeripheralConnection?
         if let id = peripheralId, let registered = peripheralConnections[id] {
@@ -405,9 +414,36 @@ class BLEManager: NSObject, ObservableObject {
         } else {
             conn = nil
         }
-        guard let c = conn else { return }
-        if let meshPDU = MeshCrypto.createStandardMeshPDU(accessMessage: accessMessage, dst: dst) {
+        guard let c = conn else {
+            log("writeMesh: NO CONNECTION — dropping PDU for dst=0x\(String(format: "%04X", dst))")
+            return
+        }
+
+        guard let meshPDU = MeshCrypto.createStandardMeshPDU(accessMessage: accessMessage, dst: dst) else {
+            log("writeMesh: createStandardMeshPDU returned nil for dst=0x\(String(format: "%04X", dst))")
+            return
+        }
+
+        let now = Date()
+        let elapsed = now.timeIntervalSince(lastBLEWriteTime)
+
+        if elapsed >= bleWriteInterval {
+            // Enough time has passed — send immediately
+            pendingBLEWrite?.cancel()
+            pendingBLEWrite = nil
+            lastBLEWriteTime = now
             c.peripheral.writeValue(meshPDU, for: c.meshProxyIn, type: .withoutResponse)
+        } else {
+            // Too soon — schedule a deferred write (replaces any previous pending write)
+            pendingBLEWrite?.cancel()
+            let delay = bleWriteInterval - elapsed
+            let work = DispatchWorkItem { [weak self] in
+                self?.lastBLEWriteTime = Date()
+                self?.pendingBLEWrite = nil
+                c.peripheral.writeValue(meshPDU, for: c.meshProxyIn, type: .withoutResponse)
+            }
+            pendingBLEWrite = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
         }
     }
 
@@ -415,7 +451,7 @@ class BLEManager: NSObject, ObservableObject {
     /// sleepMode=0 puts the light to sleep (instant off), sleepMode=1 wakes it (on).
     /// Pass targetAddress to override the default targetUnicastAddress (used by background engines).
     func setCCTWithSleep(intensity percent: Double, cctKelvin: Int, sleepMode: Int, gm: Int = 100, gmFlag: Int = 0, targetAddress: UInt16? = nil, viaPeripheral: UUID? = nil) {
-        let dst = targetAddress ?? targetUnicastAddress
+        let dst = targetAddress ?? effectiveTargetAddress
 
         if bridgeManager.isConnected {
             bridgeManager.setCCT(unicast: dst, intensity: percent, cctKelvin: cctKelvin, sleepMode: sleepMode)
@@ -442,7 +478,7 @@ class BLEManager: NSObject, ObservableObject {
     /// Set HSI with explicit values and sleepMode control for instant on/off transitions.
     /// Pass targetAddress to override the default targetUnicastAddress (used by background engines).
     func setHSIWithSleep(intensity percent: Double, hue: Int, saturation: Int, cctKelvin: Int = 5600, sleepMode: Int, targetAddress: UInt16? = nil, viaPeripheral: UUID? = nil) {
-        let dst = targetAddress ?? targetUnicastAddress
+        let dst = targetAddress ?? effectiveTargetAddress
 
         if bridgeManager.isConnected {
             bridgeManager.setHSI(unicast: dst, intensity: percent, hue: hue, saturation: saturation, cctKelvin: cctKelvin, sleepMode: sleepMode)
@@ -472,9 +508,10 @@ class BLEManager: NSObject, ObservableObject {
     func setCCT(_ kelvin: Int, gm: Int = 100) {
         currentCCT = kelvin
         currentMode = "cct"
-        guard let peripheral = connectedPeripheral else { return }
+        guard connectedPeripheral != nil else { return }
 
-        log("setCCT(\(kelvin)K gm:\(gm)) target=0x\(String(format: "%04X", targetUnicastAddress))")
+        let dst = effectiveTargetAddress
+        log("setCCT(\(kelvin)K gm:\(gm)) target=0x\(String(format: "%04X", dst))")
 
         // Sidus opcode 0x26 + CCTProtocol — sets both intensity and CCT
         let cctCmd = CCTProtocol(intensityPercent: Double(currentIntensity), cctKelvin: kelvin, gm: gm)
@@ -482,15 +519,8 @@ class BLEManager: NSObject, ObservableObject {
         var accessMessage: [UInt8] = [0x26]
         accessMessage.append(contentsOf: payload)
 
-        if let char = meshProxyIn {
-            if let meshPDU = MeshCrypto.createStandardMeshPDU(
-                accessMessage: accessMessage,
-                dst: targetUnicastAddress
-            ) {
-                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
-                log("  Sent CCT(\(kelvin)K, \(currentIntensity)%) to 0x\(String(format: "%04X", targetUnicastAddress))")
-            }
-        }
+        writeMesh(accessMessage: accessMessage, dst: dst)
+        log("  Sent CCT(\(kelvin)K, \(currentIntensity)%) to 0x\(String(format: "%04X", dst))")
     }
 
     func setRGB(red: Int, green: Int, blue: Int) {
@@ -505,9 +535,10 @@ class BLEManager: NSObject, ObservableObject {
         currentSaturation = saturation
         currentIntensity = intensity
         currentHSICCT = cctKelvin
-        guard let peripheral = connectedPeripheral else { return }
+        guard connectedPeripheral != nil else { return }
 
-        log("setHSI(h:\(hue), s:\(saturation), i:\(intensity), cct:\(cctKelvin)K) target=0x\(String(format: "%04X", targetUnicastAddress))")
+        let dst = effectiveTargetAddress
+        log("setHSI(h:\(hue), s:\(saturation), i:\(intensity), cct:\(cctKelvin)K) target=0x\(String(format: "%04X", dst))")
 
         // Sidus opcode 0x26 + HSIProtocol — sets hue, saturation, intensity, white balance
         let cmd = HSIProtocol(intensityPercent: Double(intensity), hue: hue, saturationPercent: Double(saturation), cctKelvin: cctKelvin)
@@ -515,21 +546,15 @@ class BLEManager: NSObject, ObservableObject {
         var accessMessage: [UInt8] = [0x26]
         accessMessage.append(contentsOf: payload)
 
-        if let char = meshProxyIn {
-            if let meshPDU = MeshCrypto.createStandardMeshPDU(
-                accessMessage: accessMessage,
-                dst: targetUnicastAddress
-            ) {
-                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
-                log("  Sent HSI(h:\(hue), s:\(saturation), i:\(intensity)) to 0x\(String(format: "%04X", targetUnicastAddress))")
-            }
-        }
+        writeMesh(accessMessage: accessMessage, dst: dst)
+        log("  Sent HSI(h:\(hue), s:\(saturation), i:\(intensity)) to 0x\(String(format: "%04X", dst))")
     }
 
     func setPowerOn(_ on: Bool) {
-        guard let peripheral = connectedPeripheral else { return }
+        guard connectedPeripheral != nil else { return }
 
-        log("setPower(\(on)) mode=\(currentMode) target=0x\(String(format: "%04X", targetUnicastAddress))")
+        let dst = effectiveTargetAddress
+        log("setPower(\(on)) mode=\(currentMode) target=0x\(String(format: "%04X", dst))")
 
         let intensity = on ? max(currentIntensity, 10) : 0
         let payload: Data
@@ -561,20 +586,13 @@ class BLEManager: NSObject, ObservableObject {
         var accessMessage: [UInt8] = [0x26]
         accessMessage.append(contentsOf: payload)
 
-        if let char = meshProxyIn {
-            if let meshPDU = MeshCrypto.createStandardMeshPDU(
-                accessMessage: accessMessage,
-                dst: targetUnicastAddress
-            ) {
-                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
-                log("  Sent \(currentMode) power \(on ? "ON" : "OFF") (intensity=\(intensity)%) to 0x\(String(format: "%04X", targetUnicastAddress))")
-            }
-        }
+        writeMesh(accessMessage: accessMessage, dst: dst)
+        log("  Sent \(currentMode) power \(on ? "ON" : "OFF") (intensity=\(intensity)%) to 0x\(String(format: "%04X", dst))")
     }
 
     func setEffect(effectType: Int, intensityPercent: Double, frq: Int, cctKelvin: Int = 5600, copCarColor: Int = 0, effectMode: Int = 0, hue: Int = 0, saturation: Int = 100, targetAddress: UInt16? = nil, viaPeripheral: UUID? = nil) {
         currentMode = "effects"
-        let dst = targetAddress ?? targetUnicastAddress
+        let dst = targetAddress ?? effectiveTargetAddress
 
         if bridgeManager.isConnected {
             bridgeManager.setEffect(unicast: dst, effectType: effectType, intensity: intensityPercent, frq: frq, cctKelvin: cctKelvin, copCarColor: copCarColor, effectMode: effectMode, hue: hue, saturation: saturation)
@@ -598,7 +616,7 @@ class BLEManager: NSObject, ObservableObject {
 
     /// Send a dedicated SleepProtocol (commandType=12) for instant on/off — no color data to process.
     func sendSleep(_ on: Bool, targetAddress: UInt16? = nil, viaPeripheral: UUID? = nil) {
-        let dst = targetAddress ?? targetUnicastAddress
+        let dst = targetAddress ?? effectiveTargetAddress
 
         if bridgeManager.isConnected {
             bridgeManager.sendSleep(unicast: dst, on: on)
@@ -618,30 +636,25 @@ class BLEManager: NSObject, ObservableObject {
         stopPaparazzi()
         stopSoftwareEffect()
 
+        let dst = effectiveTargetAddress
+
         if bridgeManager.isConnected {
-            bridgeManager.stopEffect(unicast: targetUnicastAddress)
-            log("stopEffect() via bridge for 0x\(String(format: "%04X", targetUnicastAddress))")
+            bridgeManager.stopEffect(unicast: dst)
+            log("stopEffect() via bridge for 0x\(String(format: "%04X", dst))")
             return
         }
 
-        guard let peripheral = connectedPeripheral else { return }
+        guard connectedPeripheral != nil else { return }
 
-        log("stopEffect() target=0x\(String(format: "%04X", targetUnicastAddress))")
+        log("stopEffect() target=0x\(String(format: "%04X", dst))")
 
         let cmd = SidusEffectProtocol(effectType: 15) // Effect Off
         let payload = cmd.getSendData()
         var accessMessage: [UInt8] = [0x26]
         accessMessage.append(contentsOf: payload)
 
-        if let char = meshProxyIn {
-            if let meshPDU = MeshCrypto.createStandardMeshPDU(
-                accessMessage: accessMessage,
-                dst: targetUnicastAddress
-            ) {
-                peripheral.writeValue(meshPDU, for: char, type: .withoutResponse)
-                log("  Sent effect OFF to 0x\(String(format: "%04X", targetUnicastAddress))")
-            }
-        }
+        writeMesh(accessMessage: accessMessage, dst: dst)
+        log("  Sent effect OFF to 0x\(String(format: "%04X", dst))")
     }
 
     /// Disconnect all peripherals except the primary `connectedPeripheral`.
@@ -905,13 +918,18 @@ class BLEManager: NSObject, ObservableObject {
 
         guard let peripheral = connectedPeripheral else { return }
 
+        // Look up group addresses for this light
+        let savedLight = storage.savedLights.first { $0.unicastAddress == deviceAddress }
+        let groupAddrs = savedLight.map { storage.groupAddresses(forLightId: $0.id) } ?? []
+
         log("Running post-provisioning config for device 0x\(String(format: "%04X", deviceAddress))...")
 
         configManager.configure(
             peripheral: peripheral,
             proxyDataIn: proxyIn,
             deviceAddress: deviceAddress,
-            deviceKey: deviceKey
+            deviceKey: deviceKey,
+            groupAddresses: groupAddrs
         ) { [weak self] success in
             if success {
                 self?.log("Config complete — light should now respond to commands!")
@@ -919,6 +937,38 @@ class BLEManager: NSObject, ObservableObject {
                 self?.log("Config failed — commands may not work")
             }
             self?.connectionState = .ready
+        }
+    }
+
+    /// Send only group subscriptions for an already-configured saved light.
+    /// Skips AppKey Add, Model Bind, and Publication Set since those were done during provisioning.
+    private func sendGroupSubscriptionsOnly(proxyIn: CBCharacteristic, groupAddresses: [UInt16]) {
+        let storage = KeyStorage.shared
+        let deviceAddress = targetUnicastAddress
+
+        guard let deviceKey = storage.getDeviceKey(forAddress: deviceAddress) else {
+            log("No device key for 0x\(String(format: "%04X", deviceAddress)) — skipping group subscriptions")
+            return
+        }
+
+        guard let peripheral = connectedPeripheral else {
+            return
+        }
+
+        log("Sending group subscriptions for saved light 0x\(String(format: "%04X", deviceAddress))...")
+
+        configManager.sendGroupSubscriptionsOnly(
+            peripheral: peripheral,
+            proxyDataIn: proxyIn,
+            deviceAddress: deviceAddress,
+            deviceKey: deviceKey,
+            groupAddresses: groupAddresses
+        ) { [weak self] success in
+            if success {
+                self?.log("Group subscriptions complete")
+            } else {
+                self?.log("Group subscriptions failed")
+            }
         }
     }
 
@@ -1308,12 +1358,22 @@ extension BLEManager: CBPeripheralDelegate {
                 if let proxyIn = self.meshProxyIn {
                     self.sendProxyFilterSetup(proxyIn: proxyIn)
 
-                    // For saved lights, config was already done during provisioning — go straight to ready
-                    let isSavedLight = KeyStorage.shared.savedLights.contains(where: { $0.unicastAddress == self.targetUnicastAddress })
-                    if isSavedLight {
-                        self.log("Saved light — skipping post-provisioning config")
+                    // For saved lights, skip full config but still send group subscriptions
+                    let storage = KeyStorage.shared
+                    let savedLight = storage.savedLights.first(where: { $0.unicastAddress == self.targetUnicastAddress })
+                    if let saved = savedLight {
+                        let groupAddrs = storage.groupAddresses(forLightId: saved.id)
+                        // Mark ready immediately so the light is usable without delay
+                        self.log("Saved light — ready")
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                             self.connectionState = .ready
+                        }
+                        // Send group subscriptions in background (non-blocking)
+                        if !groupAddrs.isEmpty {
+                            self.log("Sending \(groupAddrs.count) group subscription(s) in background")
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                self.sendGroupSubscriptionsOnly(proxyIn: proxyIn, groupAddresses: groupAddrs)
+                            }
                         }
                     } else {
                         // Run post-provisioning config after short delay for filter to take effect

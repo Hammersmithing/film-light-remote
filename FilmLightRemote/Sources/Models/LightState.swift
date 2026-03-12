@@ -139,6 +139,23 @@ class LightState: ObservableObject {
     @Published var partyTransition: Double = 50.0 // 0=snap, 100=full sweep between colors
     @Published var partyHueBias: Double = 0.0 // -180 to +180, shifts all party hues
 
+    // MARK: - Copy
+
+    func copyValues(from other: LightState) {
+        isOn = other.isOn
+        mode = other.mode
+        intensity = other.intensity
+        cctKelvin = other.cctKelvin
+        gmTint = other.gmTint
+        hue = other.hue
+        saturation = other.saturation
+        hsiIntensity = other.hsiIntensity
+        hsiCCT = other.hsiCCT
+        selectedEffect = other.selectedEffect
+        effectFrequency = other.effectFrequency
+        effectSpeed = other.effectSpeed
+    }
+
     // MARK: - Computed Properties
 
     var hsiColor: Color {

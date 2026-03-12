@@ -11,6 +11,8 @@ struct GroupSessionView: View {
     @State private var lightStates: [UUID: LightState] = [:]
     @State private var showingEditSheet = false
     @State private var currentGroup: LightGroup
+    @State private var syncMode = false
+    @State private var syncLightState: LightState?
 
     private var usingBridge: Bool { bridgeManager.isConnected }
 
@@ -31,9 +33,11 @@ struct GroupSessionView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                lightPicker
+                lightPickerBar
                 Divider()
-                if let light = selectedLight, let state = currentLightState {
+                if syncMode, let state = syncLightState {
+                    syncContent(lightState: state)
+                } else if let light = selectedLight, let state = currentLightState {
                     sessionContent(light: light, lightState: state)
                 } else {
                     noLightsView
@@ -44,10 +48,11 @@ struct GroupSessionView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Close") {
-                        // Save all light states
+
                         for (id, state) in lightStates {
                             state.save(forLightId: id)
                         }
+                        bleManager.groupTargetAddress = nil
                         if !usingBridge {
                             bleManager.disconnect()
                         }
@@ -76,11 +81,55 @@ struct GroupSessionView: View {
                 for (id, state) in lightStates {
                     state.save(forLightId: id)
                 }
+                bleManager.groupTargetAddress = nil
             }
         }
     }
 
-    // MARK: - Light Picker
+    // MARK: - Light Picker Bar
+
+    private var lightPickerBar: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                if currentGroup.meshGroupAddress != nil && lights.count >= 2 {
+                    syncToggle
+                }
+                if !syncMode {
+                    lightPicker
+                } else {
+                    Text("All Lights")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Capsule().fill(Color.accentColor))
+                    Spacer()
+                }
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 10)
+        }
+        .background(Color(.systemBackground))
+    }
+
+    private var syncToggle: some View {
+        Button {
+            toggleSync()
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: syncMode ? "link.circle.fill" : "link.circle")
+                    .font(.body)
+                Text("Sync")
+                    .font(.caption)
+                    .fontWeight(.medium)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Capsule().fill(syncMode ? Color.orange : Color(.systemGray5)))
+            .foregroundColor(syncMode ? .white : .primary)
+        }
+    }
 
     private var lightPicker: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -107,10 +156,7 @@ struct GroupSessionView: View {
                     }
                 }
             }
-            .padding(.horizontal)
-            .padding(.vertical, 10)
         }
-        .background(Color(.systemBackground))
     }
 
     private func lightStatusColor(for light: SavedLight) -> Color {
@@ -137,6 +183,16 @@ struct GroupSessionView: View {
                 lightState: lightState,
                 cctRange: LightSessionView.cctRange(for: light.name),
                 intensityStep: LightSessionView.intensityStep(for: light.name)
+            )
+        }
+    }
+
+    private func syncContent(lightState: LightState) -> some View {
+        VStack(spacing: 0) {
+            LightControlView(
+                lightState: lightState,
+                cctRange: 2000...10000,
+                intensityStep: 1.0
             )
         }
     }
@@ -214,6 +270,35 @@ struct GroupSessionView: View {
 
     // MARK: - Actions
 
+    private func toggleSync() {
+        syncMode.toggle()
+        if syncMode {
+            // Initialize sync state from currently selected light
+            if syncLightState == nil {
+                let state = LightState()
+                if let id = selectedLightId, let existing = lightStates[id] {
+                    state.copyValues(from: existing)
+                }
+                syncLightState = state
+            }
+            if let state = syncLightState {
+                bleManager.syncState(from: state)
+            }
+            // Route commands to group address (relay delivers to all lights)
+            guard let groupAddr = currentGroup.meshGroupAddress else { return }
+            bleManager.groupTargetAddress = groupAddr
+        } else {
+            // Disable sync
+            bleManager.groupTargetAddress = nil
+            if let light = selectedLight {
+                bleManager.targetUnicastAddress = light.unicastAddress
+                if let state = lightStates[light.id] {
+                    bleManager.syncState(from: state)
+                }
+            }
+        }
+    }
+
     private func reloadLights() {
         let allSaved = KeyStorage.shared.savedLights
         lights = currentGroup.lightIds.compactMap { id in
@@ -262,9 +347,32 @@ struct GroupSessionView: View {
         if usingBridge {
             // Ask bridge to connect to this light
             bridgeManager.connectLight(unicast: light.unicastAddress)
+            // Send current state immediately so light matches sliders
+            sendCurrentState(for: light)
         } else {
             // Direct BLE: connect to this light's peripheral (disconnects previous)
             bleManager.connectToKnownPeripheral(identifier: light.peripheralIdentifier)
+            // Send current state once connected (after a brief delay for connection)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [self] in
+                if selectedLightId == light.id {
+                    sendCurrentState(for: light)
+                }
+            }
+        }
+    }
+
+    /// Send the light's saved state immediately so it matches the UI without requiring slider adjustment
+    private func sendCurrentState(for light: SavedLight) {
+        guard let state = lightStates[light.id] else { return }
+        if state.mode == .cct {
+            bleManager.setCCT(Int(state.cctKelvin), gm: Int(state.gmTint))
+        } else {
+            bleManager.setHSI(
+                hue: Int(state.hue),
+                saturation: Int(state.saturation),
+                intensity: Int(state.hsiIntensity),
+                cctKelvin: Int(state.hsiCCT)
+            )
         }
     }
 }
