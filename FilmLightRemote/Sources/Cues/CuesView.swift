@@ -1,11 +1,11 @@
 import SwiftUI
 
-/// Top-level cue lists view — lists all cue lists with add/rename/delete.
+/// Top-level view — lists all move lists and timelines with add/rename/delete.
 struct CuesView: View {
     @EnvironmentObject var bleManager: BLEManager
-    @State private var cueLists: [CueList] = []
+    @State private var moveLists: [MoveList] = []
     @State private var timelines: [Timeline] = []
-    @State private var renamingList: CueList?
+    @State private var renamingList: MoveList?
     @State private var renameText = ""
     @State private var renamingTimeline: Timeline?
     @State private var renameTimelineText = ""
@@ -15,7 +15,7 @@ struct CuesView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 Picker("", selection: $selectedTab) {
-                    Text("Cue Lists").tag(0)
+                    Text("Move Lists").tag(0)
                     Text("Timelines").tag(1)
                 }
                 .pickerStyle(.segmented)
@@ -23,17 +23,17 @@ struct CuesView: View {
                 .padding(.vertical, 8)
 
                 if selectedTab == 0 {
-                    cueListsContent
+                    moveListsContent
                 } else {
                     timelinesContent
                 }
             }
-            .navigationTitle("Cues")
+            .navigationTitle("Moves")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         if selectedTab == 0 {
-                            addCueList()
+                            addMoveList()
                         } else {
                             addTimeline()
                         }
@@ -42,7 +42,7 @@ struct CuesView: View {
                     }
                 }
             }
-            .alert("Rename Cue List", isPresented: Binding(
+            .alert("Rename Move List", isPresented: Binding(
                 get: { renamingList != nil },
                 set: { if !$0 { renamingList = nil } }
             )) {
@@ -51,7 +51,7 @@ struct CuesView: View {
                 Button("Save") {
                     if var list = renamingList {
                         list.name = renameText
-                        KeyStorage.shared.updateCueList(list)
+                        KeyStorage.shared.updateMoveList(list)
                         reloadLists()
                     }
                     renamingList = nil
@@ -79,11 +79,11 @@ struct CuesView: View {
         }
     }
 
-    // MARK: - Cue Lists Content
+    // MARK: - Move Lists Content
 
-    private var cueListsContent: some View {
+    private var moveListsContent: some View {
         Group {
-            if cueLists.isEmpty {
+            if moveLists.isEmpty {
                 emptyState
             } else {
                 listContent
@@ -111,16 +111,16 @@ struct CuesView: View {
             Image(systemName: "list.number")
                 .font(.system(size: 50))
                 .foregroundColor(.secondary)
-            Text("No Cue Lists")
+            Text("No Move Lists")
                 .font(.title3)
                 .fontWeight(.semibold)
-            Text("Create a cue list to sequence lighting changes across multiple lights.")
+            Text("Create a move list to sequence lighting transitions across multiple lights.")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
-            Button("Create Cue List") {
-                addCueList()
+            Button("Create Move List") {
+                addMoveList()
             }
             .padding(.horizontal, 40)
             .padding(.vertical, 12)
@@ -161,9 +161,9 @@ struct CuesView: View {
 
     private var listContent: some View {
         List {
-            ForEach(cueLists) { list in
-                NavigationLink(destination: CueListDetailView(cueList: list, onUpdate: reloadLists)) {
-                    CueListRow(cueList: list)
+            ForEach(moveLists) { list in
+                NavigationLink(destination: MoveListDetailView(moveList: list, onUpdate: reloadLists)) {
+                    MoveListRow(moveList: list)
                 }
                 .contextMenu {
                     Button {
@@ -173,7 +173,7 @@ struct CuesView: View {
                         Label("Rename", systemImage: "pencil")
                     }
                     Button(role: .destructive) {
-                        KeyStorage.shared.removeCueList(list)
+                        KeyStorage.shared.removeMoveList(list)
                         reloadLists()
                     } label: {
                         Label("Delete", systemImage: "trash")
@@ -181,7 +181,7 @@ struct CuesView: View {
                 }
                 .swipeActions(edge: .trailing) {
                     Button(role: .destructive) {
-                        KeyStorage.shared.removeCueList(list)
+                        KeyStorage.shared.removeMoveList(list)
                         reloadLists()
                     } label: {
                         Label("Delete", systemImage: "trash")
@@ -225,9 +225,9 @@ struct CuesView: View {
 
     // MARK: - Actions
 
-    private func addCueList() {
-        let list = CueList()
-        KeyStorage.shared.addCueList(list)
+    private func addMoveList() {
+        let list = MoveList()
+        KeyStorage.shared.addMoveList(list)
         reloadLists()
     }
 
@@ -238,7 +238,7 @@ struct CuesView: View {
     }
 
     private func reloadLists() {
-        cueLists = KeyStorage.shared.cueLists
+        moveLists = KeyStorage.shared.moveLists
     }
 
     private func reloadTimelines() {
@@ -246,17 +246,17 @@ struct CuesView: View {
     }
 }
 
-// MARK: - Cue List Row
+// MARK: - Move List Row
 
-private struct CueListRow: View {
-    let cueList: CueList
+private struct MoveListRow: View {
+    let moveList: MoveList
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(cueList.name)
+            Text(moveList.name)
                 .font(.body)
                 .fontWeight(.medium)
-            Text("\(cueList.cues.count) cue\(cueList.cues.count == 1 ? "" : "s")")
+            Text("\(moveList.moves.count) move\(moveList.moves.count == 1 ? "" : "s")")
                 .font(.caption)
                 .foregroundColor(.secondary)
         }

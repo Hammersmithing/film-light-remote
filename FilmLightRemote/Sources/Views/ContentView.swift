@@ -11,7 +11,7 @@ struct ContentView: View {
             GroupsView()
                 .tabItem { Label("Groups", systemImage: "rectangle.3.group") }
             CuesView()
-                .tabItem { Label("Cues", systemImage: "list.number") }
+                .tabItem { Label("Moves", systemImage: "list.number") }
         }
         .overlay(alignment: .top) {
             if bridgeManager.isConnected {

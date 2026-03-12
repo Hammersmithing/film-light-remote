@@ -1,155 +1,133 @@
 import Foundation
 import Combine
 
-/// Manages cue execution — fires cues via the bridge, handles timing and auto-follow.
+/// Manages move execution — fires moves via BLE, handles fade interpolation and chaining.
 ///
-/// Timing model per cue:
-///   1. Delay — wait before the cue begins
-///   2. Execute — send each light's state via bridge (all simultaneous)
-///   3. Duration — how long the cue stays active (0 = hold indefinitely until next GO)
-///   4. End — effects stop, lights dim to 0%, check if next cue has auto-start
-class CueEngine: ObservableObject {
-    @Published var currentCueIndex: Int = 0
+/// Two playback modes:
+///   - playAll: runs all moves sequentially with wait times between them
+///   - next: fires the current move only, advances index, stops
+///
+/// Lights always hold at their final position — no dimming on end.
+class MoveEngine: ObservableObject {
+    @Published var currentMoveIndex: Int = 0
     @Published var isRunning: Bool = false
 
     weak var bleManager: BLEManager?
-    private var delayWork: DispatchWorkItem?
-    private var durationWork: DispatchWorkItem?
+    private var waitWork: DispatchWorkItem?
     private var fadeTimer: Timer?
-    private var allCues: [Cue] = []
-    private var holdFinal: Bool = true
+    private var allMoves: [Move] = []
+    private var playingAll: Bool = false
 
-    // MARK: - Fire Cue
+    // MARK: - Public API
 
-    func fireCue(_ cue: Cue, allCues: [Cue], holdFinal: Bool = true) {
+    /// Run all moves from currentMoveIndex to the end.
+    func playAll(moves: [Move]) {
+        allMoves = moves
+        playingAll = true
+        fireCurrentMove()
+    }
+
+    /// Fire the current move only, then stop.
+    func playNext(moves: [Move]) {
+        allMoves = moves
+        playingAll = false
+        fireCurrentMove()
+    }
+
+    func stop() {
+        cancelPending()
+        isRunning = false
+    }
+
+    func reset() {
+        cancelPending()
+        currentMoveIndex = 0
+        isRunning = false
+    }
+
+    // MARK: - Fire Move
+
+    private func fireCurrentMove() {
         guard let bm = bleManager else { return }
-        self.allCues = allCues
-        self.holdFinal = holdFinal
+        guard currentMoveIndex < allMoves.count else {
+            isRunning = false
+            return
+        }
 
-        // Stop any in-progress work from the previous cue
         cancelPending()
         isRunning = true
 
-        // Step 1: Apply pre-execution delay, then execute
-        let preDelay = cue.followDelay
-        if preDelay > 0 {
-            let work = DispatchWorkItem { [weak self] in
-                self?.executeCue(cue, bleManager: bm)
+        let move = allMoves[currentMoveIndex]
+        executeMove(move, bleManager: bm)
+    }
+
+    private func executeMove(_ move: Move, bleManager: BLEManager) {
+        if move.fadeTime > 0 && !move.lightEntries.isEmpty {
+            startFade(move, bleManager: bleManager)
+        } else {
+            // Snap — send all lights to their "to" state immediately
+            for entry in move.lightEntries {
+                sendState(entry.toState, to: entry.unicastAddress, bleManager: bleManager)
             }
-            delayWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + preDelay, execute: work)
-        } else {
-            executeCue(cue, bleManager: bm)
+            moveDidComplete()
         }
     }
 
-    /// Step 2 & 3: Execute the cue — fade if entries have A→B states, otherwise snap.
-    private func executeCue(_ cue: Cue, bleManager: BLEManager) {
-        let hasFade = cue.fadeInTime > 0 && cue.lightEntries.contains(where: { $0.startState != nil })
-        if hasFade {
-            startFadeIn(cue, bleManager: bleManager)
-        } else {
-            fireSnap(cue, bleManager: bleManager)
-            scheduleDuration(cue)
-        }
-    }
+    // MARK: - Fade
 
-    /// Schedule the hold duration after a cue finishes its transition.
-    private func scheduleDuration(_ cue: Cue) {
-        let duration = cue.fadeTime
-        let work = DispatchWorkItem { [weak self] in
-            self?.cueDidEnd()
-        }
-        durationWork = work
-
-        if duration > 0 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: work)
-        } else {
-            // Duration 0 = hold indefinitely until next GO
-            durationWork = nil
-        }
-    }
-
-    // MARK: - Fade In
-
-    /// Interpolate each light from its position A (startState) to position B (state).
-    /// Lights without a startState snap directly to their target.
-    private func startFadeIn(_ cue: Cue, bleManager: BLEManager) {
-        // Snap lights that have position A to their start state immediately
-        for entry in cue.lightEntries {
-            if let startState = entry.startState {
-                sendState(startState, to: entry.unicastAddress, bleManager: bleManager)
-            } else {
-                // No A state — snap to B
-                sendState(entry.state, to: entry.unicastAddress, bleManager: bleManager)
-            }
+    private func startFade(_ move: Move, bleManager: BLEManager) {
+        // Send all lights to their "from" state immediately
+        for entry in move.lightEntries {
+            sendState(entry.fromState, to: entry.unicastAddress, bleManager: bleManager)
         }
 
-        let fadeInTime = cue.fadeInTime
+        let fadeTime = move.fadeTime
         let startTime = Date()
-        let tickInterval: TimeInterval = 0.05  // 50ms = 20 updates/sec
+        let tickInterval: TimeInterval = 0.05
 
         fadeTimer?.invalidate()
         fadeTimer = Timer.scheduledTimer(withTimeInterval: tickInterval, repeats: true) { [weak self] timer in
             guard let self = self else { timer.invalidate(); return }
 
             let elapsed = Date().timeIntervalSince(startTime)
-            let t = min(elapsed / fadeInTime, 1.0)
+            let t = min(elapsed / fadeTime, 1.0)
 
-            for entry in cue.lightEntries {
-                guard let startState = entry.startState else { continue }
-                let interpolated = CueState.interpolate(from: startState, to: entry.state, t: t)
+            for entry in move.lightEntries {
+                let interpolated = CueState.interpolate(from: entry.fromState, to: entry.toState, t: t)
                 self.sendState(interpolated, to: entry.unicastAddress, bleManager: bleManager)
             }
 
             if t >= 1.0 {
                 timer.invalidate()
                 self.fadeTimer = nil
-                if cue.fadeTime > 0 {
-                    // Hold at position B for the specified duration
-                    self.scheduleDuration(cue)
-                } else {
-                    // No hold duration — cue is complete after fade finishes
-                    self.cueDidEnd()
+                self.moveDidComplete()
+            }
+        }
+    }
+
+    // MARK: - Move Complete
+
+    private func moveDidComplete() {
+        let nextIndex = currentMoveIndex + 1
+        let hasNext = nextIndex < allMoves.count
+
+        if playingAll && hasNext {
+            currentMoveIndex = nextIndex
+            let waitTime = allMoves[nextIndex].waitTime
+            if waitTime > 0 {
+                let work = DispatchWorkItem { [weak self] in
+                    self?.fireCurrentMove()
                 }
-            }
-        }
-    }
-
-    /// Step 4: The current cue has finished its duration.
-    private func cueDidEnd() {
-        let nextIndex = currentCueIndex + 1
-        let hasNext = nextIndex < allCues.count
-        let isLastCue = !hasNext
-
-        // Skip dim if this is the last cue and holdFinal is on
-        if isLastCue && holdFinal {
-            // Leave lights at their final position
-        } else {
-            stopAllEffects()
-            dimCueLights(allCues[currentCueIndex])
-        }
-
-        if hasNext {
-            let nextCue = allCues[nextIndex]
-            currentCueIndex = nextIndex
-
-            if nextCue.autoFollow {
-                fireCue(nextCue, allCues: allCues, holdFinal: holdFinal)
+                waitWork = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + waitTime, execute: work)
             } else {
-                isRunning = false
+                fireCurrentMove()
             }
         } else {
+            if hasNext {
+                currentMoveIndex = nextIndex
+            }
             isRunning = false
-        }
-    }
-
-    // MARK: - Snap (send all lights via bridge simultaneously)
-
-    private func fireSnap(_ cue: Cue, bleManager: BLEManager) {
-        for entry in cue.lightEntries {
-            bleManager.targetUnicastAddress = entry.unicastAddress
-            sendState(entry.state, to: entry.unicastAddress, bleManager: bleManager)
         }
     }
 
@@ -229,7 +207,6 @@ class CueEngine: ObservableObject {
             effectColorMode = state.effectColorMode == "HSI" ? 1 : 0
         }
 
-        // Set base color first
         if effectColorMode == 1 {
             bleManager.setHSIWithSleep(
                 intensity: state.intensity,
@@ -262,7 +239,6 @@ class CueEngine: ObservableObject {
                         params: params
                     )
                 } else {
-                    // Direct BLE: fall back to hardware effect
                     bleManager.setEffect(
                         effectType: effect.rawValue,
                         intensityPercent: state.intensity,
@@ -295,51 +271,19 @@ class CueEngine: ObservableObject {
         }
     }
 
-    // MARK: - Dim Lights
-
-    /// Dim every light in the given cue to 0% for a clean break between cues.
-    private func dimCueLights(_ cue: Cue) {
-        guard let bm = bleManager else { return }
-        for entry in cue.lightEntries {
-            bm.setCCTWithSleep(intensity: 0, cctKelvin: 5600, sleepMode: 0, targetAddress: entry.unicastAddress)
-        }
-    }
-
-    // MARK: - Stop / Reset
-
-    func stop() {
-        cancelPending()
-        // Dim all lights from the current cue
-        if currentCueIndex < allCues.count {
-            dimCueLights(allCues[currentCueIndex])
-        }
-        isRunning = false
-    }
-
-    func reset() {
-        cancelPending()
-        currentCueIndex = 0
-        isRunning = false
-    }
+    // MARK: - Cancel
 
     private func cancelPending() {
-        delayWork?.cancel()
-        delayWork = nil
-        durationWork?.cancel()
-        durationWork = nil
+        waitWork?.cancel()
+        waitWork = nil
         fadeTimer?.invalidate()
         fadeTimer = nil
-        stopAllEffects()
-    }
-
-    /// Stop all running effects — bridge uses stopAll, direct BLE sends effect-off.
-    private func stopAllEffects() {
-        guard let bm = bleManager else { return }
-        if bm.useBridge {
-            bm.bridgeManager.stopAll()
-        } else {
-            bm.stopEffect()
+        if let bm = bleManager {
+            if bm.useBridge {
+                bm.bridgeManager.stopAll()
+            } else {
+                bm.stopEffect()
+            }
         }
     }
-
 }

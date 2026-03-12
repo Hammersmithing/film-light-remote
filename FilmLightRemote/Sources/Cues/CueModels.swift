@@ -1,85 +1,146 @@
 import Foundation
 
-// MARK: - Cue List
+// MARK: - Move List
 
-struct CueList: Identifiable, Codable {
+struct MoveList: Identifiable, Codable {
     let id: UUID
     var name: String
-    var cues: [Cue]
-    var holdFinal: Bool          // keep lights at final position when last cue ends
+    var moves: [Move]
 
-    init(id: UUID = UUID(), name: String = "New Cue List", cues: [Cue] = [], holdFinal: Bool = true) {
+    init(id: UUID = UUID(), name: String = "New Move List", moves: [Move] = []) {
         self.id = id
         self.name = name
-        self.cues = cues
-        self.holdFinal = holdFinal
+        self.moves = moves
     }
+
+    /// Backward-compatible decoder: reads old CueList JSON and converts to MoveList.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+
+        // Try new format first, fall back to legacy
+        if let newMoves = try? c.decode([Move].self, forKey: .moves) {
+            moves = newMoves
+        } else if let legacyCues = try? c.decode([LegacyCue].self, forKey: .cues) {
+            moves = Self.migrate(legacyCues)
+        } else {
+            moves = []
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, moves, cues
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(moves, forKey: .moves)
+    }
+
+    /// Convert legacy Cue array to Move array.
+    private static func migrate(_ cues: [LegacyCue]) -> [Move] {
+        var moves: [Move] = []
+        for (i, cue) in cues.enumerated() {
+            let entries: [MoveLightEntry] = cue.lightEntries.map { entry in
+                let fromState: CueState
+                if let startState = entry.startState {
+                    fromState = startState
+                } else if i > 0,
+                          let prev = cues[i - 1].lightEntries.first(where: { $0.lightId == entry.lightId }) {
+                    fromState = prev.state
+                } else {
+                    fromState = entry.state
+                }
+                return MoveLightEntry(
+                    lightId: entry.lightId,
+                    lightName: entry.lightName,
+                    unicastAddress: entry.unicastAddress,
+                    fromState: fromState,
+                    toState: entry.state
+                )
+            }
+            moves.append(Move(
+                name: cue.name,
+                lightEntries: entries,
+                fadeTime: (cue.fadeInTime ?? 0) > 0 ? (cue.fadeInTime ?? 0) : 0,
+                waitTime: cue.followDelay
+            ))
+        }
+        return moves
+    }
+}
+
+/// Legacy types for migration only — not used elsewhere.
+private struct LegacyCue: Codable {
+    let id: UUID
+    var name: String
+    var lightEntries: [LegacyLightCueEntry]
+    var fadeTime: Double
+    var autoFollow: Bool
+    var followDelay: Double
+    var fadeInTime: Double?
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
         name = try c.decode(String.self, forKey: .name)
-        cues = try c.decode([Cue].self, forKey: .cues)
-        holdFinal = try c.decodeIfPresent(Bool.self, forKey: .holdFinal) ?? true
+        lightEntries = try c.decode([LegacyLightCueEntry].self, forKey: .lightEntries)
+        fadeTime = try c.decode(Double.self, forKey: .fadeTime)
+        autoFollow = try c.decode(Bool.self, forKey: .autoFollow)
+        followDelay = try c.decode(Double.self, forKey: .followDelay)
+        fadeInTime = try c.decodeIfPresent(Double.self, forKey: .fadeInTime)
     }
 }
 
-// MARK: - Cue
+private struct LegacyLightCueEntry: Codable {
+    let id: UUID
+    var lightId: UUID
+    var lightName: String
+    var unicastAddress: UInt16
+    var state: CueState
+    var startState: CueState?
+}
 
-struct Cue: Identifiable, Codable {
+// MARK: - Move
+
+struct Move: Identifiable, Codable {
     let id: UUID
     var name: String
-    var lightEntries: [LightCueEntry]
-    var fadeTime: Double         // duration in seconds (0 = snap)
-    var autoFollow: Bool         // start when previous cue ends
-    var followDelay: Double      // delay before this cue fires (seconds)
-    var fadeInTime: Double       // transition time in seconds (0 = snap, >0 = interpolate)
+    var lightEntries: [MoveLightEntry]
+    var fadeTime: Double       // A→B transition duration (0 = snap)
+    var waitTime: Double       // pause after this move before next move starts
 
-    init(id: UUID = UUID(), name: String = "Cue", lightEntries: [LightCueEntry] = [],
-         fadeTime: Double = 0, autoFollow: Bool = false, followDelay: Double = 0,
-         fadeInTime: Double = 0) {
+    init(id: UUID = UUID(), name: String = "Move", lightEntries: [MoveLightEntry] = [],
+         fadeTime: Double = 0, waitTime: Double = 0) {
         self.id = id
         self.name = name
         self.lightEntries = lightEntries
         self.fadeTime = fadeTime
-        self.autoFollow = autoFollow
-        self.followDelay = followDelay
-        self.fadeInTime = fadeInTime
-    }
-
-    // Migrate old data: followDelay used to default to 1.0, now defaults to 0
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(UUID.self, forKey: .id)
-        name = try c.decode(String.self, forKey: .name)
-        lightEntries = try c.decode([LightCueEntry].self, forKey: .lightEntries)
-        fadeTime = try c.decode(Double.self, forKey: .fadeTime)
-        autoFollow = try c.decode(Bool.self, forKey: .autoFollow)
-        let rawDelay = try c.decode(Double.self, forKey: .followDelay)
-        // Old default was 1.0 — reset to 0 unless autoFollow is on
-        followDelay = (!autoFollow && rawDelay == 1.0) ? 0 : rawDelay
-        fadeInTime = try c.decodeIfPresent(Double.self, forKey: .fadeInTime) ?? 0
+        self.waitTime = waitTime
     }
 }
 
-// MARK: - Light Cue Entry
+// MARK: - Move Light Entry
 
-struct LightCueEntry: Identifiable, Codable {
+struct MoveLightEntry: Identifiable, Codable {
     let id: UUID
     var lightId: UUID            // references SavedLight.id
     var lightName: String        // display name snapshot
-    var unicastAddress: UInt16   // cached for cue execution
-    var state: CueState          // position B (target / end state)
-    var startState: CueState?    // position A (start state, nil = snap to B)
+    var unicastAddress: UInt16   // cached for execution
+    var fromState: CueState      // position A (start)
+    var toState: CueState        // position B (end)
 
     init(id: UUID = UUID(), lightId: UUID, lightName: String, unicastAddress: UInt16,
-         state: CueState = CueState(), startState: CueState? = nil) {
+         fromState: CueState = CueState(), toState: CueState = CueState()) {
         self.id = id
         self.lightId = lightId
         self.lightName = lightName
         self.unicastAddress = unicastAddress
-        self.state = state
-        self.startState = startState
+        self.fromState = fromState
+        self.toState = toState
     }
 }
 
@@ -267,7 +328,6 @@ struct TimeSignature: Codable, Equatable {
     var beatsPerBar: Int
     var beatUnit: Int
 
-    /// Quarter notes per bar (e.g. 4/4 → 4, 3/4 → 3, 6/8 → 3)
     var quarterNotesPerBar: Double {
         Double(beatsPerBar) * (4.0 / Double(beatUnit))
     }
@@ -281,7 +341,7 @@ struct TimeSignature: Codable, Equatable {
 
 struct TempoEvent: Identifiable, Codable, Equatable {
     let id: UUID
-    var beatPosition: Double   // quarter notes from timeline start
+    var beatPosition: Double
     var bpm: Double
     var timeSignature: TimeSignature
 
@@ -303,7 +363,6 @@ struct Timeline: Identifiable, Codable {
     var audioFileName: String?
     var audioFileId: String?
 
-    // Beat mode fields (all optional for backward compat)
     var mode: TimelineMode?
     var totalBeats: Double?
     var tempoEvents: [TempoEvent]?
@@ -313,7 +372,7 @@ struct Timeline: Identifiable, Codable {
 
     var effectiveTempoEvents: [TempoEvent] {
         guard let events = tempoEvents, !events.isEmpty else {
-            return [TempoEvent()]  // default 120 BPM 4/4
+            return [TempoEvent()]
         }
         return events.sorted { $0.beatPosition < $1.beatPosition }
     }

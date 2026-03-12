@@ -261,12 +261,12 @@ class KeyStorage {
         }
     }
 
-    // MARK: - Cue Lists
+    // MARK: - Move Lists (stored under legacy "cues.cueLists" key for backward compat)
 
-    var cueLists: [CueList] {
+    var moveLists: [MoveList] {
         get {
             guard let data = defaults.data(forKey: cueListsKey) else { return [] }
-            return (try? JSONDecoder().decode([CueList].self, from: data)) ?? []
+            return (try? JSONDecoder().decode([MoveList].self, from: data)) ?? []
         }
         set {
             if let data = try? JSONEncoder().encode(newValue) {
@@ -275,24 +275,24 @@ class KeyStorage {
         }
     }
 
-    func addCueList(_ list: CueList) {
-        var lists = cueLists
+    func addMoveList(_ list: MoveList) {
+        var lists = moveLists
         lists.append(list)
-        cueLists = lists
+        moveLists = lists
     }
 
-    func updateCueList(_ list: CueList) {
-        var lists = cueLists
+    func updateMoveList(_ list: MoveList) {
+        var lists = moveLists
         if let idx = lists.firstIndex(where: { $0.id == list.id }) {
             lists[idx] = list
-            cueLists = lists
+            moveLists = lists
         }
     }
 
-    func removeCueList(_ list: CueList) {
-        var lists = cueLists
+    func removeMoveList(_ list: MoveList) {
+        var lists = moveLists
         lists.removeAll { $0.id == list.id }
-        cueLists = lists
+        moveLists = lists
     }
 
     // MARK: - Timelines

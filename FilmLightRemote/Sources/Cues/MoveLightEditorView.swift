@@ -1,35 +1,33 @@
 import SwiftUI
 
-/// Edit one light's A and B positions within a cue.
+/// Edit one light's From and To positions within a move.
 /// Connects directly to the light so the user sees changes in real time.
-/// Tab between Position A (start) and Position B (end) to set each look.
-struct CueLightEditorView: View {
+/// Always shows From/To tabs since every move is inherently A→B.
+struct MoveLightEditorView: View {
     @EnvironmentObject var bleManager: BLEManager
     @ObservedObject private var bridgeManager = BridgeManager.shared
-    @State private var entry: LightCueEntry
+    @State private var entry: MoveLightEntry
     @StateObject private var lightState = LightState()
-    @State private var selectedPosition: Position = .b
-    @State private var hasPositionA: Bool
-    var onSave: (LightCueEntry) -> Void
+    @State private var selectedPosition: Position = .to
+    var onSave: (MoveLightEntry) -> Void
 
     enum Position: String, CaseIterable {
-        case a = "A"
-        case b = "B"
+        case from = "From"
+        case to = "To"
     }
 
     /// Stored snapshots so switching tabs preserves edits.
-    @State private var stateA: CueState
-    @State private var stateB: CueState
+    @State private var stateFrom: CueState
+    @State private var stateTo: CueState
 
     @State private var previousUnicastAddress: UInt16 = 0
 
     private var usingBridge: Bool { bridgeManager.isConnected }
 
-    init(entry: LightCueEntry, onSave: @escaping (LightCueEntry) -> Void) {
+    init(entry: MoveLightEntry, onSave: @escaping (MoveLightEntry) -> Void) {
         _entry = State(initialValue: entry)
-        _stateA = State(initialValue: entry.startState ?? CueState())
-        _stateB = State(initialValue: entry.state)
-        _hasPositionA = State(initialValue: entry.startState != nil)
+        _stateFrom = State(initialValue: entry.fromState)
+        _stateTo = State(initialValue: entry.toState)
         self.onSave = onSave
     }
 
@@ -65,44 +63,24 @@ struct CueLightEditorView: View {
             .padding()
             .background(Color(.systemGray6))
 
-            // A/B toggle
-            if hasPositionA {
-                Picker("Position", selection: $selectedPosition) {
-                    ForEach(Position.allCases, id: \.self) { pos in
-                        Text("Position \(pos.rawValue)").tag(pos)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.top, 8)
-                .onChange(of: selectedPosition) { _ in
-                    switchPosition()
+            // From/To picker
+            Picker("Position", selection: $selectedPosition) {
+                ForEach(Position.allCases, id: \.self) { pos in
+                    Text(pos.rawValue).tag(pos)
                 }
             }
-
-            // Enable/disable position A
-            Toggle(hasPositionA ? "Fade A \u{2192} B" : "Enable Fade (A \u{2192} B)", isOn: $hasPositionA)
-                .padding(.horizontal)
-                .padding(.top, 8)
-                .onChange(of: hasPositionA) { enabled in
-                    if enabled {
-                        // Copy current B state as starting point for A
-                        stateA = stateB
-                        selectedPosition = .a
-                        stateA.apply(to: lightState)
-                    } else {
-                        selectedPosition = .b
-                        stateB.apply(to: lightState)
-                    }
-                }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.top, 8)
+            .onChange(of: selectedPosition) { _ in
+                switchPosition()
+            }
 
             // Position label
-            if hasPositionA {
-                Text(selectedPosition == .a ? "Start Position" : "End Position")
-                    .font(.caption)
-                    .foregroundColor(selectedPosition == .a ? .blue : .green)
-                    .padding(.top, 4)
-            }
+            Text(selectedPosition == .from ? "Start Position" : "End Position")
+                .font(.caption)
+                .foregroundColor(selectedPosition == .from ? .blue : .green)
+                .padding(.top, 4)
 
             // Light controls
             LightControlView(
@@ -113,14 +91,14 @@ struct CueLightEditorView: View {
             .allowsHitTesting(isLightReady)
             .opacity(isLightReady ? 1.0 : 0.5)
         }
-        .navigationTitle(hasPositionA ? "Position \(selectedPosition.rawValue)" : "Edit Light")
+        .navigationTitle(selectedPosition == .from ? "From" : "To")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") {
                     saveCurrentPosition()
-                    entry.state = stateB
-                    entry.startState = hasPositionA ? stateA : nil
+                    entry.fromState = stateFrom
+                    entry.toState = stateTo
                     onSave(entry)
                 }
             }
@@ -143,13 +121,9 @@ struct CueLightEditorView: View {
                 }
             }
 
-            // Load initial position into controls
-            if hasPositionA {
-                selectedPosition = .a
-                stateA.apply(to: lightState)
-            } else {
-                stateB.apply(to: lightState)
-            }
+            // Start on From position
+            selectedPosition = .from
+            stateFrom.apply(to: lightState)
         }
         .onDisappear {
             bleManager.suppressStatusUpdates = false
@@ -163,25 +137,24 @@ struct CueLightEditorView: View {
     /// Save the current lightState into the active position's snapshot.
     private func saveCurrentPosition() {
         let snapshot = CueState.from(lightState)
-        if selectedPosition == .a {
-            stateA = snapshot
+        if selectedPosition == .from {
+            stateFrom = snapshot
         } else {
-            stateB = snapshot
+            stateTo = snapshot
         }
     }
 
-    /// Switch between A and B — save current edits, load the other position.
+    /// Switch between From and To — save current edits, load the other position.
     private func switchPosition() {
-        // Save what we were editing
         let snapshot = CueState.from(lightState)
-        if selectedPosition == .a {
-            // We just switched TO A, so save B
-            stateB = snapshot
-            stateA.apply(to: lightState)
+        if selectedPosition == .from {
+            // Just switched TO From, so save To
+            stateTo = snapshot
+            stateFrom.apply(to: lightState)
         } else {
-            // We just switched TO B, so save A
-            stateA = snapshot
-            stateB.apply(to: lightState)
+            // Just switched TO To, so save From
+            stateFrom = snapshot
+            stateTo.apply(to: lightState)
         }
     }
 }

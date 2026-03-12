@@ -1,27 +1,27 @@
 import SwiftUI
 
-/// Edit a single cue — name, timing, and per-light states.
-struct CueEditorView: View {
-    @State private var cue: Cue
+/// Edit a single move — name, timing, and per-light from/to states.
+struct MoveEditorView: View {
+    @State private var move: Move
     @State private var showingLightPicker = false
-    @State private var editingEntry: LightCueEntry?
-    @State private var copiedState: CueState?
-    @State private var delayText: String = ""
-    @State private var durationText: String = ""
-    @State private var fadeInText: String = ""
-    @State private var savedDelayText: String = ""
-    @State private var savedDurationText: String = ""
-    @State private var savedFadeInText: String = ""
+    @State private var editingEntry: MoveLightEntry?
+    @State private var copiedFrom: CueState?
+    @State private var copiedTo: CueState?
+    @State private var fadeText: String = ""
+    @State private var waitText: String = ""
+    @State private var savedFadeText: String = ""
+    @State private var savedWaitText: String = ""
     @FocusState private var focusedField: TimingField?
-    var onSave: (Cue) -> Void
+    let moveList: MoveList
+    var onSave: (Move) -> Void
 
-    enum TimingField { case delay, duration, fadeIn }
+    enum TimingField { case fade, wait }
 
-    init(cue: Cue, onSave: @escaping (Cue) -> Void) {
-        _cue = State(initialValue: cue)
-        _delayText = State(initialValue: Self.formatSeconds(cue.followDelay))
-        _durationText = State(initialValue: Self.formatSeconds(cue.fadeTime))
-        _fadeInText = State(initialValue: Self.formatSeconds(cue.fadeInTime))
+    init(move: Move, moveList: MoveList, onSave: @escaping (Move) -> Void) {
+        _move = State(initialValue: move)
+        _fadeText = State(initialValue: Self.formatSeconds(move.fadeTime))
+        _waitText = State(initialValue: Self.formatSeconds(move.waitTime))
+        self.moveList = moveList
         self.onSave = onSave
     }
 
@@ -40,73 +40,45 @@ struct CueEditorView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             Form {
-                // Name
-                Section("Cue Name") {
-                    TextField("Name", text: $cue.name)
+                Section("Move Name") {
+                    TextField("Name", text: $move.name)
                 }
 
-                // Timing
                 Section {
-                    // Auto-follow toggle at top
-                    Toggle("Auto Start", isOn: $cue.autoFollow)
-
-                    // Delay
                     HStack {
-                        Text("Delay")
+                        Text("Fade")
                         Spacer()
-                        TextField("0.00", text: $delayText)
+                        TextField("0.00", text: $fadeText)
                             .keyboardType(.decimalPad)
                             .multilineTextAlignment(.trailing)
-                            .focused($focusedField, equals: .delay)
+                            .focused($focusedField, equals: .fade)
                             .frame(width: 70)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background(Color(.systemGray5))
                             .cornerRadius(6)
-                            .onChange(of: delayText) { _ in
-                                cue.followDelay = Self.parseSeconds(delayText, ceiling: 8)
+                            .onChange(of: fadeText) { _ in
+                                move.fadeTime = Self.parseSeconds(fadeText, ceiling: 30)
                             }
                         Text("sec")
                             .foregroundColor(.secondary)
                             .font(.subheadline)
                     }
 
-                    // Duration
                     HStack {
-                        Text("Duration")
+                        Text("Wait")
                         Spacer()
-                        TextField("0.00", text: $durationText)
+                        TextField("0.00", text: $waitText)
                             .keyboardType(.decimalPad)
                             .multilineTextAlignment(.trailing)
-                            .focused($focusedField, equals: .duration)
+                            .focused($focusedField, equals: .wait)
                             .frame(width: 70)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background(Color(.systemGray5))
                             .cornerRadius(6)
-                            .onChange(of: durationText) { _ in
-                                cue.fadeTime = Self.parseSeconds(durationText, ceiling: 30)
-                            }
-                        Text("sec")
-                            .foregroundColor(.secondary)
-                            .font(.subheadline)
-                    }
-
-                    // Fade In
-                    HStack {
-                        Text("Fade In")
-                        Spacer()
-                        TextField("0.00", text: $fadeInText)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .focused($focusedField, equals: .fadeIn)
-                            .frame(width: 70)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color(.systemGray5))
-                            .cornerRadius(6)
-                            .onChange(of: fadeInText) { _ in
-                                cue.fadeInTime = Self.parseSeconds(fadeInText, ceiling: 30)
+                            .onChange(of: waitText) { _ in
+                                move.waitTime = Self.parseSeconds(waitText, ceiling: 30)
                             }
                         Text("sec")
                             .foregroundColor(.secondary)
@@ -115,25 +87,19 @@ struct CueEditorView: View {
                 } header: {
                     Text("Timing")
                 } footer: {
-                    if cue.fadeInTime > 0 {
-                        Text("Fades in over \(Self.formatSeconds(cue.fadeInTime))s." + (cue.fadeTime > 0 ? " Holds for \(Self.formatSeconds(cue.fadeTime))s then ends." : " Holds until next GO."))
-                    } else if cue.fadeTime == 0 {
-                        Text("Duration 0 = stays active until next GO.")
-                    } else {
-                        Text("Light holds for \(Self.formatSeconds(cue.fadeTime))s then the cue ends.")
-                    }
+                    Text(move.fadeTime > 0 ? "Fades from A to B over \(Self.formatSeconds(move.fadeTime))s." : "Snaps instantly to target.")
+                    + Text(move.waitTime > 0 ? " Waits \(Self.formatSeconds(move.waitTime))s before next move." : "")
                 }
 
-                // Lights
                 Section {
-                    if cue.lightEntries.isEmpty {
-                        Text("No lights in this cue")
+                    if move.lightEntries.isEmpty {
+                        Text("No lights in this move")
                             .foregroundColor(.secondary)
                             .italic()
                     } else {
-                        ForEach(cue.lightEntries) { entry in
+                        ForEach(move.lightEntries) { entry in
                             HStack(spacing: 0) {
-                                LightEntryRow(entry: entry)
+                                MoveLightEntryRow(entry: entry)
                                     .contentShape(Rectangle())
                                     .onTapGesture {
                                         editingEntry = entry
@@ -141,16 +107,17 @@ struct CueEditorView: View {
 
                                 Menu {
                                     Button {
-                                        copiedState = entry.state
+                                        copiedFrom = entry.fromState
+                                        copiedTo = entry.toState
                                     } label: {
                                         Label("Copy Settings", systemImage: "doc.on.doc")
                                     }
 
-                                    if copiedState != nil {
+                                    if copiedTo != nil {
                                         Button {
-                                            if let idx = cue.lightEntries.firstIndex(where: { $0.id == entry.id }),
-                                               let state = copiedState {
-                                                cue.lightEntries[idx].state = state
+                                            if let idx = move.lightEntries.firstIndex(where: { $0.id == entry.id }) {
+                                                if let from = copiedFrom { move.lightEntries[idx].fromState = from }
+                                                if let to = copiedTo { move.lightEntries[idx].toState = to }
                                             }
                                         } label: {
                                             Label("Paste Settings", systemImage: "doc.on.clipboard")
@@ -160,7 +127,7 @@ struct CueEditorView: View {
                                     Divider()
 
                                     Button(role: .destructive) {
-                                        cue.lightEntries.removeAll { $0.id == entry.id }
+                                        move.lightEntries.removeAll { $0.id == entry.id }
                                     } label: {
                                         Label("Delete", systemImage: "trash")
                                     }
@@ -185,28 +152,24 @@ struct CueEditorView: View {
                 }
             }
         }
-        .navigationTitle("Edit Cue")
+        .navigationTitle("Edit Move")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Done") {
                     commitField()
-                    onSave(cue)
+                    onSave(move)
                 }
             }
         }
         .safeAreaInset(edge: .bottom) {
             if isEditingTiming {
                 HStack {
-                    Button("Cancel") {
-                        cancelField()
-                    }
-                    .foregroundColor(.red)
+                    Button("Cancel") { cancelField() }
+                        .foregroundColor(.red)
                     Spacer()
-                    Button("Done") {
-                        commitField()
-                    }
-                    .fontWeight(.semibold)
+                    Button("Done") { commitField() }
+                        .fontWeight(.semibold)
                 }
                 .padding(.horizontal)
                 .padding(.vertical, 10)
@@ -214,36 +177,35 @@ struct CueEditorView: View {
             }
         }
         .onChange(of: focusedField) { newField in
-            // Save the current text so Cancel can revert, then clear for fresh input
-            if newField == .delay {
-                savedDelayText = delayText
-                delayText = ""
-            } else if newField == .duration {
-                savedDurationText = durationText
-                durationText = ""
-            } else if newField == .fadeIn {
-                savedFadeInText = fadeInText
-                fadeInText = ""
+            if newField == .fade {
+                savedFadeText = fadeText
+                fadeText = ""
+            } else if newField == .wait {
+                savedWaitText = waitText
+                waitText = ""
             }
         }
         .sheet(isPresented: $showingLightPicker) {
-            SavedLightPickerView(existingIds: Set(cue.lightEntries.map(\.lightId))) { light in
-                let entry = LightCueEntry(
+            SavedLightPickerView(existingIds: Set(move.lightEntries.map(\.lightId))) { light in
+                // Default fromState: use previous move's toState for this light if available
+                let defaultFrom = previousToState(for: light.id) ?? CueState()
+                let entry = MoveLightEntry(
                     lightId: light.id,
                     lightName: light.name,
-                    unicastAddress: light.unicastAddress
+                    unicastAddress: light.unicastAddress,
+                    fromState: defaultFrom,
+                    toState: defaultFrom
                 )
-                cue.lightEntries.append(entry)
+                move.lightEntries.append(entry)
                 showingLightPicker = false
-                // Open editor immediately for the new entry
                 editingEntry = entry
             }
         }
         .sheet(item: $editingEntry) { entry in
             NavigationStack {
-                CueLightEditorView(entry: entry) { updatedEntry in
-                    if let idx = cue.lightEntries.firstIndex(where: { $0.id == updatedEntry.id }) {
-                        cue.lightEntries[idx] = updatedEntry
+                MoveLightEditorView(entry: entry) { updatedEntry in
+                    if let idx = move.lightEntries.firstIndex(where: { $0.id == updatedEntry.id }) {
+                        move.lightEntries[idx] = updatedEntry
                     }
                     editingEntry = nil
                 }
@@ -252,27 +214,30 @@ struct CueEditorView: View {
         }
     }
 
+    /// Find the previous move's "to" state for a given light.
+    private func previousToState(for lightId: UUID) -> CueState? {
+        guard let moveIndex = moveList.moves.firstIndex(where: { $0.id == move.id }),
+              moveIndex > 0 else { return nil }
+        let prevMove = moveList.moves[moveIndex - 1]
+        return prevMove.lightEntries.first(where: { $0.lightId == lightId })?.toState
+    }
+
     private func commitField() {
-        if focusedField == .delay {
-            cue.followDelay = Self.parseSeconds(delayText, ceiling: 8)
-            delayText = Self.formatSeconds(cue.followDelay)
-        } else if focusedField == .duration {
-            cue.fadeTime = Self.parseSeconds(durationText, ceiling: 30)
-            durationText = Self.formatSeconds(cue.fadeTime)
-        } else if focusedField == .fadeIn {
-            cue.fadeInTime = Self.parseSeconds(fadeInText, ceiling: 30)
-            fadeInText = Self.formatSeconds(cue.fadeInTime)
+        if focusedField == .fade {
+            move.fadeTime = Self.parseSeconds(fadeText, ceiling: 30)
+            fadeText = Self.formatSeconds(move.fadeTime)
+        } else if focusedField == .wait {
+            move.waitTime = Self.parseSeconds(waitText, ceiling: 30)
+            waitText = Self.formatSeconds(move.waitTime)
         }
         focusedField = nil
     }
 
     private func cancelField() {
-        if focusedField == .delay {
-            delayText = savedDelayText
-        } else if focusedField == .duration {
-            durationText = savedDurationText
-        } else if focusedField == .fadeIn {
-            fadeInText = savedFadeInText
+        if focusedField == .fade {
+            fadeText = savedFadeText
+        } else if focusedField == .wait {
+            waitText = savedWaitText
         }
         focusedField = nil
     }
@@ -280,8 +245,8 @@ struct CueEditorView: View {
 
 // MARK: - Light Entry Row
 
-private struct LightEntryRow: View {
-    let entry: LightCueEntry
+private struct MoveLightEntryRow: View {
+    let entry: MoveLightEntry
 
     var body: some View {
         HStack(spacing: 12) {
@@ -294,31 +259,23 @@ private struct LightEntryRow: View {
                     .font(.body)
                     .fontWeight(.medium)
 
-                if let startState = entry.startState {
-                    // A → B summary
-                    HStack(spacing: 4) {
-                        Text(startState.shortSummary)
-                            .font(.caption)
-                            .foregroundColor(.blue)
-                        Image(systemName: "arrow.right")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                        Text(entry.state.shortSummary)
-                            .font(.caption)
-                            .foregroundColor(.green)
-                    }
-                } else {
-                    Text(entry.state.modeSummary)
+                HStack(spacing: 4) {
+                    Text(entry.fromState.shortSummary)
                         .font(.caption)
                         .foregroundColor(.secondary)
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 8))
+                        .foregroundColor(.secondary)
+                    Text(entry.toState.shortSummary)
+                        .font(.caption)
+                        .foregroundColor(.primary)
                 }
             }
 
             Spacer()
 
-            // Power indicator
             Circle()
-                .fill(entry.state.isOn ? Color.green : Color.gray)
+                .fill(entry.toState.isOn ? Color.green : Color.gray)
                 .frame(width: 8, height: 8)
         }
         .padding(.vertical, 2)
@@ -343,7 +300,7 @@ struct SavedLightPickerView: View {
                         Text("No saved lights. Add lights in the Lights tab first.")
                             .foregroundColor(.secondary)
                     } else {
-                        Text("All saved lights are already in this cue.")
+                        Text("All saved lights are already in this move.")
                             .foregroundColor(.secondary)
                     }
                 } else {

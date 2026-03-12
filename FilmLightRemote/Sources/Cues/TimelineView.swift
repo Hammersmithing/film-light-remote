@@ -107,15 +107,16 @@ struct TimelineView: View {
         }
         .sheet(item: $editingBlock) { info in
             NavigationStack {
-                CueLightEditorView(
-                    entry: LightCueEntry(
+                MoveLightEditorView(
+                    entry: MoveLightEntry(
                         lightId: info.lightId,
                         lightName: info.lightName,
                         unicastAddress: info.unicastAddress,
-                        state: info.state
+                        fromState: info.state,
+                        toState: info.state
                     )
                 ) { updated in
-                    applyBlockEdit(trackId: info.trackId, blockId: info.blockId, newState: updated.state)
+                    applyBlockEdit(trackId: info.trackId, blockId: info.blockId, newState: updated.toState)
                     editingBlock = nil
                 }
             }
